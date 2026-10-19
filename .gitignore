@@ -1,0 +1,56 @@
+# dependencies and build output
+node_modules/
+dist/
+target/
+coverage/
+*.log
+*.tsbuildinfo
+
+# local settings and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# editor / operating system
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# application data
+data/
+storage/
+downloads/
+cache/
+*.db
+*.sqlite
+*.sqlite3
+
+# third-party or copyrighted media must never enter Git
+*.mp3
+*.ncm
+*.flac
+*.wav
+*.aac
+*.m4a
+*.krc
+*.lrc
+
+# local binary tools and archives supplied outside source control
+工具/
+歌词/
+*.zip
+*.exe
+*.dll
+
+# Tauri generated/bundled artifacts
+**/src-tauri/gen/
+**/src-tauri/target/
+**/*.msi
+**/*.msix
+**/*.appx
+
+# generated database client
+apps/server/src/generated/

@@ -1,0 +1,39 @@
+{
+  "name": "online-ktv",
+  "version": "0.2.0",
+  "private": true,
+  "description": "线上 KTV 桌面端、管理端和服务端单仓库",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client-desktop,admin-desktop -c blue,magenta,cyan \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:admin\"",
+    "dev:server": "npm run dev -w @ktv/server",
+    "dev:client": "npm run desktop:dev -w @ktv/client",
+    "dev:admin": "npm run desktop:dev -w @ktv/admin",
+    "build": "npm run build --workspaces --if-present",
+    "build:desktop:client": "npm run desktop:build -w @ktv/client",
+    "build:desktop:admin": "npm run desktop:build -w @ktv/admin",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @ktv/server",
+    "db:migrate": "npm run db:migrate -w @ktv/server",
+    "admin:promote": "npm run admin:promote -w @ktv/server --",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.5",
+    "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "prisma@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
+    "esbuild@0.28.2": true,
+    "argon2@0.44.0": true
+  }
+}

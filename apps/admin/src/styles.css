@@ -1,0 +1,35 @@
+.admin-actions { display: flex; align-items: center; gap: 18px; }
+.global-search { width: 270px; height: 38px; border-radius: 10px; background: #191620; border: 1px solid #2e2938; display: flex; align-items: center; gap: 8px; padding: 0 11px; color: #746e7e; }
+.global-search input { min-width: 0; flex: 1; color: #e5e0eb; background: transparent; border: 0; outline: 0; font-size: 12px; }
+.admin-grid { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(290px, .8fr); gap: 18px; }
+.rooms-panel { min-width: 0; overflow-x: auto; }
+.health-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.health-list li { display: flex; justify-content: space-between; align-items: center; padding: 11px 0; border-bottom: 1px solid #24202c; font-size: 12px; color: #c5bfcc; }
+.health-list li span:first-child { display: flex; align-items: center; gap: 9px; }
+.health-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }.health-dot.ok { background: #4bd49a; box-shadow: 0 0 8px #4bd49a; }.health-dot.warn { background: #f4ad68; box-shadow: 0 0 8px #f4ad68; }
+.storage-meter { height: 5px; margin-top: 18px; background: #2d2835; border-radius: 8px; overflow: hidden; }.storage-meter span { display: block; width: 68%; height: 100%; background: linear-gradient(90deg, #7952e5, #efa65d); }
+.storage-copy { font-size: 10px; margin: 8px 0 0; }
+.job-list { display: flex; flex-direction: column; }.job-list > div { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 11px 0; border-bottom: 1px solid #24202c; }.job-list > div:last-child { border: 0; }
+.job-icon { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; }.job-icon.success { background: #1b4936; color: #57dca4; }.job-icon.warning { background: #5a411f; color: #ffc474; }.job-icon.danger { background: #5a2636; color: #ff819d; }
+.job-list p { margin: 0; display: flex; flex-direction: column; gap: 4px; }.job-list strong { font-size: 12px; }.job-list small { color: #756f7e; font-size: 10px; }
+.alerts { display: flex; flex-direction: column; gap: 9px; }.alerts button { border: 1px solid #2d2836; border-radius: 10px; padding: 13px; background: #1a1721; display: flex; justify-content: space-between; cursor: pointer; font-size: 12px; text-align: left; }.alerts button:hover { border-color: #5b437f; }.alerts small { color: #9878d1; }
+
+@media (max-width: 1200px) { .admin-grid { grid-template-columns: 1fr; }.global-search { display: none; } }
+
+.admin-login-screen { min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 50% 25%, #482b7a55, transparent 33%), #0b0910; color: #f4f0f8; }
+.admin-login-card { width: 390px; padding: 38px; border: 1px solid #30283f; border-radius: 18px; background: #15111dcc; box-shadow: 0 30px 90px #0009; text-align: center; }
+.admin-login-logo { width: 48px; height: 48px; margin: 0 auto 20px; border-radius: 14px; display: grid; place-items: center; background: linear-gradient(145deg, #9561f4, #5630c0); font-weight: 900; font-size: 20px; }
+.admin-login-card h1 { margin: 0 0 8px; }.admin-login-card > p { margin: 0 0 28px; color: #8c8597; font-size: 12px; }.admin-login-card > small { display: block; margin-top: 20px; color: #625d69; font-size: 10px; }
+.admin-login-card form { display: flex; flex-direction: column; gap: 15px; text-align: left; }.admin-login-card label { display: flex; flex-direction: column; gap: 8px; color: #a39cab; font-size: 11px; }.admin-login-card input { height: 43px; padding: 0 12px; border: 1px solid #342e3e; border-radius: 10px; outline: 0; color: #f2edf7; background: #0e0c13; }.admin-login-card input:focus { border-color: #8b5ce7; box-shadow: 0 0 0 3px #8b5ce71f; }.admin-login-card form > button { height: 44px; border: 0; border-radius: 10px; background: linear-gradient(135deg, #9061ef, #5b34c9); cursor: pointer; font-weight: 700; }.admin-login-card form > button:disabled { opacity: .55; cursor: wait; }
+.admin-login-error { padding: 10px 12px; border-radius: 8px; color: #ff8ca6; background: #57233666; font-size: 11px; }.admin-user-button { border: 0; background: transparent; cursor: pointer; }
+.admin-error { margin-bottom: 16px; padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #75364a; border-radius: 10px; color: #ff9ab2; background: #3b1925; font-size: 12px; }
+.admin-error button { padding: 5px 10px; border: 1px solid #87445a; border-radius: 7px; color: inherit; background: #572438; cursor: pointer; }
+.admin-empty { min-height: 450px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; color: #777080; text-align: center; }
+.admin-empty > span { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; color: #a67cff; background: #2b2140; font-size: 22px; }.admin-empty strong { color: #cfc8da; }.admin-empty p { margin: 0; font-size: 12px; }
+.empty-table { height: 100px; color: #777080 !important; text-align: center !important; }
+.panel-action:disabled { opacity: .55; cursor: wait; }
+.users-panel { overflow-x: auto; }.users-table { min-width: 940px; }
+.admin-user-search { display: flex; gap: 8px; }.admin-user-search input { width: 240px; padding: 8px 11px; border: 1px solid #342e3f; border-radius: 8px; outline: 0; color: #f0ecf5; background: #0f0d15; }.admin-user-search input:focus { border-color: #8d61e9; }
+.admin-user-cell { display: flex; align-items: center; gap: 10px; }.admin-user-cell > span { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #c9afff; background: #302449; font-weight: 700; }.admin-user-cell p { min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 3px; }.admin-user-cell small { max-width: 210px; overflow: hidden; color: #777080; text-overflow: ellipsis; }
+.users-table select { padding: 7px 8px; border: 1px solid #393242; border-radius: 7px; color: #d8d2df; background: #17141e; }
+.danger-action, .restore-action { padding: 6px 10px; border-radius: 7px; cursor: pointer; font-size: 11px; }.danger-action { border: 1px solid #733348; color: #ff8da7; background: #42202d; }.restore-action { border: 1px solid #285e48; color: #72dfad; background: #183b2e; }.danger-action:disabled, .restore-action:disabled { opacity: .5; cursor: wait; }

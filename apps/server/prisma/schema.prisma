@@ -1,0 +1,324 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum RoomStatus {
+  OPEN
+  PLAYING
+  CLOSED
+}
+
+enum RoomMemberRole {
+  OWNER
+  MODERATOR
+  MEMBER
+}
+
+enum SongStatus {
+  DRAFT
+  PROCESSING
+  PUBLISHED
+  DISABLED
+}
+
+enum SongAssetKind {
+  AUDIO
+  COVER
+  LYRIC_SOURCE
+}
+
+enum ImportJobStatus {
+  QUEUED
+  RUNNING
+  REVIEW_REQUIRED
+  FAILED
+  COMPLETED
+}
+
+enum QueueItemStatus {
+  QUEUED
+  PLAYING
+  PLAYED
+  SKIPPED
+}
+
+enum PlaybackStatus {
+  PREPARING
+  SCHEDULED
+  PLAYING
+  PAUSED
+  ENDED
+  FAILED
+}
+
+model User {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  username           String                 @unique @db.VarChar(32)
+  usernameNormalized String                 @unique @db.VarChar(32)
+  passwordHash       String
+  email              String                 @unique @db.VarChar(254)
+  emailVerifiedAt    DateTime?
+  role               UserRole               @default(USER)
+  status             UserStatus             @default(ACTIVE)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  emailVerifications EmailVerification[]
+  sessions           UserSession[]
+  ownedRooms         Room[]                 @relation("RoomOwner")
+  roomMemberships    RoomMember[]
+  receivedBans       RoomBan[]              @relation("BannedUser")
+  issuedBans         RoomBan[]              @relation("BanIssuer")
+  messages           RoomMessage[]
+  requestedSongs     PlayQueueItem[]        @relation("QueueRequester")
+  playbackReady      PlaybackReadyState[]
+  importJobs         SongImportJob[]        @relation("ImportCreator")
+  auditLogs          AdminAuditLog[]        @relation("AuditActor")
+
+  @@index([status])
+  @@index([role])
+}
+
+model UserSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique @db.Char(64)
+  userAgent         String?   @db.VarChar(500)
+  ipAddress         String?   @db.VarChar(64)
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model EmailVerification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Room {
+  id           String            @id @default(uuid()) @db.Uuid
+  name         String            @db.VarChar(64)
+  ownerId      String            @db.Uuid
+  status       RoomStatus        @default(OPEN)
+  capacity     Int               @default(10)
+  announcement String?           @db.VarChar(500)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  closedAt     DateTime?
+  owner        User              @relation("RoomOwner", fields: [ownerId], references: [id])
+  members      RoomMember[]
+  bans         RoomBan[]
+  messages     RoomMessage[]
+  queue        PlayQueueItem[]
+  playbacks    PlaybackSession[]
+
+  @@index([status, updatedAt])
+  @@index([ownerId])
+}
+
+model RoomMember {
+  id        String         @id @default(uuid()) @db.Uuid
+  roomId    String         @db.Uuid
+  userId    String         @db.Uuid
+  role      RoomMemberRole @default(MEMBER)
+  joinedAt  DateTime       @default(now())
+  leftAt    DateTime?
+  mutedAt   DateTime?
+  room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId, leftAt])
+}
+
+model RoomBan {
+  id        String    @id @default(uuid()) @db.Uuid
+  roomId    String    @db.Uuid
+  userId    String    @db.Uuid
+  issuerId  String    @db.Uuid
+  reason    String    @db.VarChar(500)
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User      @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
+  issuer    User      @relation("BanIssuer", fields: [issuerId], references: [id])
+
+  @@index([roomId, userId, expiresAt])
+}
+
+model RoomMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  roomId    String   @db.Uuid
+  authorId  String   @db.Uuid
+  content   String   @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([roomId, createdAt])
+}
+
+model Song {
+  id            String          @id @default(uuid()) @db.Uuid
+  title         String          @db.VarChar(200)
+  artist        String          @db.VarChar(200)
+  album         String?         @db.VarChar(200)
+  durationMs    Int
+  status        SongStatus      @default(DRAFT)
+  assetVersion  Int             @default(1)
+  copyrightNote String?         @db.VarChar(1000)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  publishedAt   DateTime?
+  assets        SongAsset[]
+  lyric         Lyric?
+  importJobs    SongImportJob[]
+  queueItems    PlayQueueItem[]
+  playbacks     PlaybackSession[]
+
+  @@index([status, title])
+  @@index([artist])
+}
+
+model SongAsset {
+  id         String        @id @default(uuid()) @db.Uuid
+  songId     String        @db.Uuid
+  kind       SongAssetKind
+  objectKey  String        @unique @db.VarChar(500)
+  mimeType   String        @db.VarChar(100)
+  sizeBytes  BigInt
+  sha256     String        @db.Char(64)
+  version    Int           @default(1)
+  createdAt  DateTime      @default(now())
+  song       Song          @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([songId, kind, version])
+  @@index([sha256])
+}
+
+model Lyric {
+  id        String   @id @default(uuid()) @db.Uuid
+  songId    String   @unique @db.Uuid
+  objectKey String   @unique @db.VarChar(500)
+  sha256    String   @db.Char(64)
+  language  String?  @db.VarChar(20)
+  offsetMs  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+}
+
+model SongImportJob {
+  id          String          @id @default(uuid()) @db.Uuid
+  creatorId   String          @db.Uuid
+  songId      String?         @db.Uuid
+  sourceType  String          @db.VarChar(50)
+  sourceLabel String?         @db.VarChar(500)
+  status      ImportJobStatus @default(QUEUED)
+  progress    Int             @default(0)
+  errorCode   String?         @db.VarChar(100)
+  errorDetail String?
+  createdAt   DateTime        @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  creator     User            @relation("ImportCreator", fields: [creatorId], references: [id])
+  song        Song?           @relation(fields: [songId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([creatorId])
+}
+
+model PlayQueueItem {
+  id          String          @id @default(uuid()) @db.Uuid
+  roomId      String          @db.Uuid
+  songId      String          @db.Uuid
+  requestedBy String          @db.Uuid
+  position    Int
+  status      QueueItemStatus @default(QUEUED)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  room        Room            @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  song        Song            @relation(fields: [songId], references: [id])
+  requester   User            @relation("QueueRequester", fields: [requestedBy], references: [id])
+
+  @@unique([roomId, position])
+  @@index([roomId, status])
+}
+
+model PlaybackSession {
+  id               String               @id @default(uuid()) @db.Uuid
+  roomId           String               @db.Uuid
+  songId           String               @db.Uuid
+  status           PlaybackStatus       @default(PREPARING)
+  sequence         Int                  @default(0)
+  assetVersion     Int
+  expectedChecksum String               @db.Char(64)
+  startAt          DateTime?
+  pausedPositionMs Int?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  endedAt          DateTime?
+  room             Room                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  song             Song                 @relation(fields: [songId], references: [id])
+  readyStates      PlaybackReadyState[]
+
+  @@index([roomId, status])
+}
+
+model PlaybackReadyState {
+  id                String          @id @default(uuid()) @db.Uuid
+  playbackSessionId String          @db.Uuid
+  userId            String          @db.Uuid
+  checksum          String?         @db.Char(64)
+  readyAt           DateTime?
+  lastPositionMs    Int?
+  lastReportedAt    DateTime?
+  playbackSession   PlaybackSession @relation(fields: [playbackSessionId], references: [id], onDelete: Cascade)
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([playbackSessionId, userId])
+}
+
+model AdminAuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  actorId      String?  @db.Uuid
+  action       String   @db.VarChar(100)
+  targetType   String   @db.VarChar(100)
+  targetId     String?  @db.VarChar(100)
+  reason       String?  @db.VarChar(500)
+  beforeState  Json?
+  afterState   Json?
+  ipAddress    String?  @db.VarChar(64)
+  createdAt    DateTime @default(now())
+  actor        User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+}

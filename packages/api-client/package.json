@@ -1,0 +1,18 @@
+{
+  "name": "@ktv/api-client",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ktv/contracts": "*"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
