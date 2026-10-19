@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
+import { CanActivate, ExecutionContext, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
 import type { CurrentUser } from "@ktv/contracts";
 import type { AuthenticatedRequest } from "./current-user.decorator.js";
 import { PrismaService } from "../database/prisma.service.js";
@@ -7,8 +7,8 @@ import { TokenService } from "./token.service.js";
 @Injectable()
 export class AccessTokenGuard implements CanActivate {
   constructor(
-    private readonly tokens: TokenService,
-    private readonly prisma: PrismaService,
+    @Inject(TokenService) private readonly tokens: TokenService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

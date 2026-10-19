@@ -6,7 +6,16 @@ export class BootstrapController {
   @Get()
   getBootstrap(): { capabilities: string[]; featuredRooms: RoomSummary[] } {
     return {
-      capabilities: ["accounts", "rooms", "song-library", "asset-readiness", "clock-sync", "admin-audit"],
+      capabilities: [
+        "accounts",
+        "rooms",
+        "song-library",
+        "asset-download",
+        "asset-readiness",
+        "native-cache",
+        "clock-sync",
+        "admin-audit",
+      ],
       featuredRooms: [],
     };
   }

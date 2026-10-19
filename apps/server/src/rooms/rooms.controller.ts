@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, UseGuards } from "@nestjs/common";
 import type { CurrentUser, JoinRoomResult, LeaveRoomResult, RoomDetails, RoomSummary } from "@ktv/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard.js";
 import { CurrentUserParam } from "../auth/current-user.decorator.js";
@@ -8,7 +8,7 @@ import { RoomsService } from "./rooms.service.js";
 @Controller("rooms")
 @UseGuards(AccessTokenGuard)
 export class RoomsController {
-  constructor(private readonly rooms: RoomsService) {}
+  constructor(@Inject(RoomsService) private readonly rooms: RoomsService) {}
 
   @Get()
   listRooms(): Promise<RoomSummary[]> {

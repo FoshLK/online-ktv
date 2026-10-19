@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Query, UseGuards } from "@nestjs/common";
 import type { AdminOverview, AdminUserList, AdminUserSummary, CurrentUser } from "@ktv/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard.js";
 import { CurrentUserParam } from "../auth/current-user.decorator.js";
@@ -10,7 +10,7 @@ import { AdminService } from "./admin.service.js";
 @UseGuards(AccessTokenGuard, RolesGuard)
 @Roles("ADMIN", "SUPER_ADMIN")
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(@Inject(AdminService) private readonly admin: AdminService) {}
 
   @Get("overview")
   getOverview(): Promise<AdminOverview> {

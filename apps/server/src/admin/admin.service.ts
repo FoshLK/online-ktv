@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { AdminOverview, AdminUserList, AdminUserSummary, CurrentUser } from "@ktv/contracts";
 import { PrismaService } from "../database/prisma.service.js";
 import { RoomPresenceService } from "../rooms/room-presence.service.js";
@@ -8,9 +8,9 @@ import type { AdminUpdateUserDto, AdminUserQueryDto } from "./admin.dto.js";
 @Injectable()
 export class AdminService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly rooms: RoomsService,
-    private readonly presence: RoomPresenceService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RoomsService) private readonly rooms: RoomsService,
+    @Inject(RoomPresenceService) private readonly presence: RoomPresenceService,
   ) {}
 
   async getOverview(): Promise<AdminOverview> {

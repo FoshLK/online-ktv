@@ -1,5 +1,7 @@
 import type {
   AdminOverview,
+  AdminSongList,
+  AdminSongSummary,
   AdminUpdateUserRequest,
   AdminUserList,
   AdminUserSummary,
@@ -10,6 +12,7 @@ import type {
   JoinRoomResult,
   LeaveRoomResult,
   LoginRequest,
+  ImportSongMetadata,
   PlaybackControlRequest,
   PlaybackSnapshot,
   PreparePlaybackRequest,
@@ -18,6 +21,8 @@ import type {
   RoomDetails,
   RoomSummary,
   SongSummary,
+  SongAssetManifest,
+  SongImportResult,
   UpdateRoomRequest,
   VerifyEmailRequest,
 } from "@ktv/contracts";
@@ -31,6 +36,48 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export interface KtvServerEndpoints {
+  origin: string;
+  apiUrl: string;
+  roomSocketUrl: string;
+}
+
+/**
+ * Accepts either a server origin (10.126.126.1:3000) or the legacy /api URL
+ * and returns the two endpoints used by the desktop applications.
+ */
+export function resolveKtvServerEndpoints(value: string): KtvServerEndpoints {
+  const candidate = value.trim();
+  if (!candidate) throw new Error("服务器地址不能为空");
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(candidate) ? candidate : `http://${candidate}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    throw new Error("服务器地址格式无效");
+  }
+
+  if (!(["http:", "https:"] as string[]).includes(parsed.protocol) || !parsed.hostname) {
+    throw new Error("服务器地址必须使用 HTTP 或 HTTPS");
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("服务器地址不能包含账号、查询参数或片段");
+  }
+
+  const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+  if (normalizedPath && normalizedPath !== "/api") {
+    throw new Error("服务器地址只能填写主机与端口，可选以 /api 结尾");
+  }
+
+  const origin = parsed.origin;
+  return {
+    origin,
+    apiUrl: `${origin}/api`,
+    roomSocketUrl: `${origin}/rooms`,
+  };
 }
 
 export interface TokenStore {
@@ -136,6 +183,43 @@ export class KtvApiClient {
     return this.request(`/songs${search}`, { method: "GET" });
   }
 
+  async getSongManifest(songId: string): Promise<SongAssetManifest> {
+    return this.request(`/songs/${encodeURIComponent(songId)}/manifest`, { method: "GET" });
+  }
+
+  async listAdminSongs(query = ""): Promise<AdminSongList> {
+    const search = query ? `?q=${encodeURIComponent(query)}` : "";
+    return this.request(`/admin/songs${search}`, { method: "GET" });
+  }
+
+  async importSong(metadata: ImportSongMetadata, audio: File, lyric: File): Promise<SongImportResult> {
+    const body = new FormData();
+    body.set("title", metadata.title);
+    body.set("artist", metadata.artist);
+    if (metadata.album) body.set("album", metadata.album);
+    body.set("durationMs", String(metadata.durationMs));
+    body.set("copyrightNote", metadata.copyrightNote);
+    body.set("rightsConfirmed", String(metadata.rightsConfirmed));
+    body.set("audio", audio, audio.name);
+    body.set("lyric", lyric, lyric.name);
+    return this.request("/admin/songs/import", { method: "POST", body });
+  }
+
+  async updateAdminSongStatus(
+    songId: string,
+    status: "PUBLISHED" | "DISABLED",
+    reason: string,
+  ): Promise<AdminSongSummary> {
+    return this.request(`/admin/songs/${encodeURIComponent(songId)}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, reason }),
+    });
+  }
+
+  resolveUrl(path: string): string {
+    return new URL(path, this.baseUrl).toString();
+  }
+
   async preparePlayback(roomId: string, payload: PreparePlaybackRequest): Promise<PlaybackSnapshot> {
     return this.request(`/rooms/${encodeURIComponent(roomId)}/playback/prepare`, {
       method: "POST",
@@ -189,7 +273,7 @@ export class KtvApiClient {
 
   private async request<T>(path: string, init: RequestInit, authenticated = true, retry = true): Promise<T> {
     const headers = new Headers(init.headers);
-    headers.set("Content-Type", "application/json");
+    if (typeof init.body === "string") headers.set("Content-Type", "application/json");
     if (authenticated) {
       const accessToken = this.tokenStore.getAccessToken();
       if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);

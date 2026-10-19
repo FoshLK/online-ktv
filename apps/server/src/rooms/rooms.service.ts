@@ -1,6 +1,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -59,8 +60,8 @@ interface RoomRecord {
 @Injectable()
 export class RoomsService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly presence: RoomPresenceService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RoomPresenceService) private readonly presence: RoomPresenceService,
   ) {}
 
   async listActiveRooms(): Promise<RoomSummary[]> {

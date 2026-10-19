@@ -1,6 +1,6 @@
 {
   "name": "online-ktv",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "线上 KTV 桌面端、管理端和服务端单仓库",
   "workspaces": [
@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently -n server,client-desktop,admin-desktop -c blue,magenta,cyan \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:admin\"",
     "dev:server": "npm run dev -w @ktv/server",
+    "dev:server:pglite": "npm run dev:pglite -w @ktv/server",
     "dev:client": "npm run desktop:dev -w @ktv/client",
     "dev:admin": "npm run desktop:dev -w @ktv/admin",
     "build": "npm run build --workspaces --if-present",
@@ -18,8 +19,16 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "db:generate": "npm run db:generate -w @ktv/server",
+    "db:dev": "npm run db:dev -w @ktv/server",
     "db:migrate": "npm run db:migrate -w @ktv/server",
+    "db:deploy": "npm run db:deploy -w @ktv/server",
+    "db:deploy:pglite": "npm run db:deploy:pglite -w @ktv/server",
+    "db:status": "npm run db:status -w @ktv/server",
+    "db:status:pglite": "npm run db:status:pglite -w @ktv/server",
+    "db:seed:pglite": "npm run db:seed:pglite -w @ktv/server",
     "admin:promote": "npm run admin:promote -w @ktv/server --",
+    "easytier:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-easytier.ps1",
+    "easytier:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/easytier-status.ps1",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },
@@ -28,6 +37,7 @@
   },
   "devDependencies": {
     "concurrently": "9.2.5",
+    "cross-env": "^10.1.0",
     "typescript": "5.9.3"
   },
   "allowScripts": {

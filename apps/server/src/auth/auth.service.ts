@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -21,9 +22,9 @@ interface SessionContext {
 @Injectable()
 export class AuthService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly mail: MailService,
-    private readonly tokens: TokenService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(MailService) private readonly mail: MailService,
+    @Inject(TokenService) private readonly tokens: TokenService,
   ) {}
 
   async register(dto: RegisterDto): Promise<RegisterResponse> {

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { ApiError, createBrowserTokenStore, KtvApiClient } from "@ktv/api-client";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { ApiError, createBrowserTokenStore, KtvApiClient, resolveKtvServerEndpoints } from "@ktv/api-client";
 import type {
   ClientToServerEvents,
   CurrentUser,
+  PlaybackSnapshot,
   RoomDetails,
   RoomSummary,
   ServerToClientEvents,
@@ -19,27 +21,51 @@ const navigation = [
   { id: "settings", label: "设置", icon: "⚙" },
 ];
 
-const apiUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3000/api";
-const roomSocketUrl = import.meta.env.VITE_WS_URL ?? "http://localhost:3000/rooms";
+const serverStorageKey = "ktv-client:server-origin";
+
+function initialServerOrigin(): string {
+  const configured = localStorage.getItem(serverStorageKey) ?? import.meta.env.VITE_API_URL ?? "http://127.0.0.1:3000";
+  try {
+    return resolveKtvServerEndpoints(configured).origin;
+  } catch {
+    return "http://127.0.0.1:3000";
+  }
+}
 
 export function App() {
+  const [serverOrigin, setServerOrigin] = useState(initialServerOrigin);
+  const endpoints = useMemo(() => resolveKtvServerEndpoints(serverOrigin), [serverOrigin]);
+  const tokenStore = useMemo(() => createBrowserTokenStore(localStorage, "ktv-client"), []);
   const api = useMemo(
-    () => new KtvApiClient(apiUrl, createBrowserTokenStore(localStorage, "ktv-client")),
-    [],
+    () => new KtvApiClient(endpoints.apiUrl, tokenStore),
+    [endpoints.apiUrl, tokenStore],
   );
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     api.me().then(setUser).catch(() => api.clearSession()).finally(() => setLoading(false));
   }, [api]);
 
+  const changeServer = (value: string) => {
+    const next = resolveKtvServerEndpoints(value).origin;
+    if (next === serverOrigin) return;
+    api.clearSession();
+    localStorage.setItem(serverStorageKey, next);
+    setUser(null);
+    setServerOrigin(next);
+  };
+
   if (loading) return <div className="auth-screen"><div className="auth-loading">正在恢复登录状态…</div></div>;
-  if (!user) return <AuthScreen api={api} onAuthenticated={setUser} />;
+  if (!user) return <AuthScreen api={api} serverOrigin={serverOrigin} onServerChange={changeServer} onAuthenticated={setUser} />;
   return (
     <KtvHome
       api={api}
       user={user}
+      roomSocketUrl={endpoints.roomSocketUrl}
+      serverOrigin={serverOrigin}
+      onServerChange={changeServer}
       onLogout={async () => {
         await api.logout();
         setUser(null);
@@ -48,7 +74,17 @@ export function App() {
   );
 }
 
-function AuthScreen({ api, onAuthenticated }: { api: KtvApiClient; onAuthenticated: (user: CurrentUser) => void }) {
+function AuthScreen({
+  api,
+  serverOrigin,
+  onServerChange,
+  onAuthenticated,
+}: {
+  api: KtvApiClient;
+  serverOrigin: string;
+  onServerChange: (value: string) => void;
+  onAuthenticated: (user: CurrentUser) => void;
+}) {
   const [mode, setMode] = useState<"login" | "register" | "verify">("login");
   const [login, setLogin] = useState("");
   const [username, setUsername] = useState("");
@@ -108,6 +144,7 @@ function AuthScreen({ api, onAuthenticated }: { api: KtvApiClient; onAuthenticat
           {mode === "login" ? <button type="button" onClick={() => { setMode("register"); setError(""); }}>还没有账号？立即注册</button> : <button type="button" onClick={() => { setMode("login"); setError(""); }}>返回账号登录</button>}
           {mode === "verify" && <button type="button" onClick={async () => { const result = await api.resendVerification(email); setNotice(result.delivery === "development-log" ? "新验证码已输出到服务端终端。" : "新验证码已发送。"); }}>重新发送验证码</button>}
         </div>
+        <ServerAddressEditor serverOrigin={serverOrigin} onSave={onServerChange} compact />
       </section>
       <aside className="auth-visual"><div className="auth-orbit"><span>♫</span></div><h2>同步每一次开唱</h2><p>歌曲准备、服务器时钟与播放状态都由房间统一协调。</p></aside>
     </div>
@@ -117,10 +154,16 @@ function AuthScreen({ api, onAuthenticated }: { api: KtvApiClient; onAuthenticat
 function KtvHome({
   api,
   user,
+  roomSocketUrl,
+  serverOrigin,
+  onServerChange,
   onLogout,
 }: {
   api: KtvApiClient;
   user: CurrentUser;
+  roomSocketUrl: string;
+  serverOrigin: string;
+  onServerChange: (value: string) => void;
   onLogout: () => Promise<void>;
 }) {
   const [activeId, setActiveId] = useState("hall");
@@ -135,6 +178,8 @@ function KtvHome({
   const [songs, setSongs] = useState<SongSummary[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [preparingSongId, setPreparingSongId] = useState<string | null>(null);
+  const [downloads, setDownloads] = useState<DownloadState[]>([]);
+  const preparingSessions = useRef(new Set<string>());
 
   const loadRooms = useCallback(async () => {
     setError("");
@@ -179,6 +224,76 @@ function KtvHome({
       transports: ["websocket"],
       reconnection: true,
     });
+    let closed = false;
+    const retryTimers = new Set<number>();
+
+    const updateDownload = (entry: DownloadState) => {
+      setDownloads((items) => {
+        const existing = items.findIndex((item) => item.sessionId === entry.sessionId);
+        if (existing < 0) return [entry, ...items].slice(0, 20);
+        return items.map((item, index) => index === existing ? entry : item);
+      });
+    };
+
+    const prepareAssets = (snapshot: PlaybackSnapshot, attempt = 1) => {
+      if (closed || snapshot.state !== "PREPARING" || !snapshot.waitingUserIds.includes(user.id)) return;
+      if (preparingSessions.current.has(snapshot.sessionId)) return;
+      preparingSessions.current.add(snapshot.sessionId);
+      updateDownload({
+        sessionId: snapshot.sessionId,
+        songTitle: snapshot.song.title,
+        status: "downloading",
+        detail: attempt === 1 ? "正在下载并校验音频与歌词" : `第 ${attempt} 次重试下载`,
+      });
+
+      void (async () => {
+        const manifest = await api.getSongManifest(snapshot.song.id);
+        if (manifest.audio.sha256.toLowerCase() !== snapshot.expectedChecksum.toLowerCase()) {
+          throw new Error("播放会话与曲库音频校验值不一致");
+        }
+        const token = api.getAccessToken();
+        if (!token) throw new Error("登录状态已失效");
+        const assets = [manifest.audio, ...(manifest.lyric ? [manifest.lyric] : [])];
+        let audioResult: CachedAsset | undefined;
+        for (const asset of assets) {
+          const result = await invoke<CachedAsset>("cache_song_asset", {
+            url: api.resolveUrl(asset.downloadUrl),
+            accessToken: token,
+            songId: snapshot.song.id,
+            assetVersion: snapshot.assetVersion,
+            expectedSha256: asset.sha256,
+            fileName: asset.fileName,
+          });
+          if (asset.kind === "AUDIO") audioResult = result;
+        }
+        if (!audioResult) throw new Error("音频资源清单为空");
+
+        socket.emit("asset:ready", { sessionId: snapshot.sessionId, checksum: audioResult.sha256 }, (result) => {
+          if (!result.accepted) {
+            updateDownload({ sessionId: snapshot.sessionId, songTitle: snapshot.song.title, status: "error", detail: "服务器未接受资源就绪状态" });
+            return;
+          }
+          updateDownload({
+            sessionId: snapshot.sessionId,
+            songTitle: snapshot.song.title,
+            status: "ready",
+            detail: `${audioResult?.cacheHit ? "已命中本地缓存" : "下载完成"}，SHA-256 校验通过`,
+            path: audioResult?.path,
+          });
+        });
+      })().catch((downloadError) => {
+        preparingSessions.current.delete(snapshot.sessionId);
+        const message = downloadError instanceof Error ? downloadError.message : String(downloadError);
+        updateDownload({ sessionId: snapshot.sessionId, songTitle: snapshot.song.title, status: "error", detail: message });
+        if (!closed && attempt < 3) {
+          const timer = window.setTimeout(() => {
+            retryTimers.delete(timer);
+            prepareAssets(snapshot, attempt + 1);
+          }, attempt * 2_000);
+          retryTimers.add(timer);
+        }
+      });
+    };
 
     socket.on("connect", () => {
       setSocketState("online");
@@ -194,6 +309,7 @@ function KtvHome({
       if (room.id !== currentRoom.id) return;
       setCurrentRoom(room);
       setRooms((items) => items.map((item) => item.id === room.id ? room : item));
+      if (room.currentPlayback) prepareAssets(room.currentPlayback);
     });
     socket.on("playback:snapshot", (snapshot) => {
       if (snapshot.roomId !== currentRoom.id) return;
@@ -203,14 +319,17 @@ function KtvHome({
         currentSong: snapshot.song,
         currentPlayback: snapshot,
       } : room);
+      prepareAssets(snapshot);
     });
     socket.on("system:error", (payload) => setError(payload.message));
 
     return () => {
+      closed = true;
+      retryTimers.forEach((timer) => window.clearTimeout(timer));
       socket.emit("room:leave", { roomId: currentRoom.id });
       socket.disconnect();
     };
-  }, [api, currentRoom?.id]);
+  }, [api, currentRoom?.id, user.id]);
 
   const joinRoom = async (roomId: string) => {
     setWorkingRoomId(roomId);
@@ -339,6 +458,10 @@ function KtvHome({
           onSearch={loadSongs}
           onPrepare={prepareSong}
         />
+      ) : activeId === "downloads" ? (
+        <DownloadManager downloads={downloads} />
+      ) : activeId === "settings" ? (
+        <ServerSettings serverOrigin={serverOrigin} onSave={onServerChange} />
       ) : (
         <Panel title={title}>
           <div className="empty-state feature-placeholder"><span>⌁</span><strong>这一模块将在下一阶段接入</strong><p>房间与实时连接已经使用真实服务端数据。</p></div>
@@ -358,6 +481,86 @@ function KtvHome({
         />
       )}
     </DesktopShell>
+  );
+}
+
+function ServerSettings({ serverOrigin, onSave }: { serverOrigin: string; onSave: (value: string) => void }) {
+  return (
+    <Panel title="服务器连接">
+      <div className="server-settings-page">
+        <div><strong>API 与房间服务</strong><p>填写服务端所在电脑的 EasyTier 虚拟 IP 与端口。保存后会退出当前账号并连接新服务器。</p></div>
+        <ServerAddressEditor serverOrigin={serverOrigin} onSave={onSave} />
+      </div>
+    </Panel>
+  );
+}
+
+function ServerAddressEditor({
+  serverOrigin,
+  onSave,
+  compact = false,
+}: {
+  serverOrigin: string;
+  onSave: (value: string) => void;
+  compact?: boolean;
+}) {
+  const [value, setValue] = useState(serverOrigin);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => setValue(serverOrigin), [serverOrigin]);
+
+  const save = () => {
+    setError("");
+    setSaved(false);
+    try {
+      const normalized = resolveKtvServerEndpoints(value).origin;
+      onSave(normalized);
+      setValue(normalized);
+      setSaved(true);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "服务器地址无效");
+    }
+  };
+
+  return (
+    <div className={`server-address-editor${compact ? " compact" : ""}`}>
+      {compact && <span className="server-address-label">服务器连接</span>}
+      <div className="server-address-row">
+        <input aria-label="服务器地址" value={value} onChange={(event) => { setValue(event.target.value); setSaved(false); }} placeholder="http://10.126.126.1:3000" />
+        <button type="button" onClick={save}>保存</button>
+      </div>
+      <small>{error || (saved ? "服务器地址已保存" : `当前：${serverOrigin}`)}</small>
+    </div>
+  );
+}
+
+interface CachedAsset {
+  path: string;
+  sha256: string;
+  sizeBytes: number;
+  cacheHit: boolean;
+}
+
+interface DownloadState {
+  sessionId: string;
+  songTitle: string;
+  status: "downloading" | "ready" | "error";
+  detail: string;
+  path?: string;
+}
+
+function DownloadManager({ downloads }: { downloads: DownloadState[] }) {
+  return (
+    <Panel title="歌曲资源缓存">
+      {downloads.length > 0 ? <div className="download-list">
+        {downloads.map((download) => <div className="download-row" key={download.sessionId}>
+          <span className={`download-icon ${download.status}`}>{download.status === "ready" ? "✓" : download.status === "error" ? "!" : "⇩"}</span>
+          <div><strong>{download.songTitle}</strong><small>{download.detail}</small>{download.path && <code title={download.path}>{download.path}</code>}</div>
+          <StatusBadge tone={download.status === "ready" ? "success" : download.status === "error" ? "danger" : "warning"}>{download.status === "ready" ? "已就绪" : download.status === "error" ? "失败" : "下载中"}</StatusBadge>
+        </div>)}
+      </div> : <div className="empty-state feature-placeholder"><span>⇩</span><strong>还没有资源下载记录</strong><p>房主发起播放后，桌面端会自动下载、校验并上报就绪。</p></div>}
+    </Panel>
   );
 }
 

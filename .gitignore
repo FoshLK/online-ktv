@@ -20,10 +20,10 @@ coverage/
 Thumbs.db
 
 # application data
-data/
-storage/
-downloads/
-cache/
+/data/
+/storage/
+/downloads/
+/cache/
 *.db
 *.sqlite
 *.sqlite3

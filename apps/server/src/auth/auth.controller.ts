@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, UseGuards } from "@nestjs/common";
 import type { AuthSession, AuthTokens, CurrentUser, RegisterResponse } from "@ktv/contracts";
 import type { Request } from "express";
 import { AccessTokenGuard } from "./access-token.guard.js";
@@ -9,7 +9,7 @@ import { Roles, RolesGuard } from "./roles.guard.js";
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
   @Post("register")
   register(@Body() dto: RegisterDto): Promise<RegisterResponse> {

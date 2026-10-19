@@ -9,9 +9,11 @@ loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), quiet:
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  const origins = (process.env.CLIENT_ORIGINS ?? "http://localhost:1420,http://localhost:1421")
+  const configuredOrigins = (process.env.CLIENT_ORIGINS ?? "http://localhost:1420,http://localhost:1421")
     .split(",")
-    .map((origin) => origin.trim());
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const origins = [...new Set([...configuredOrigins, "http://tauri.localhost", "tauri://localhost"])];
 
   app.setGlobalPrefix("api");
   app.enableCors({ origin: origins, credentials: true });
@@ -19,8 +21,9 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   const port = Number(process.env.PORT ?? 3000);
-  await app.listen(port, "0.0.0.0");
-  console.info(`[server] API listening on http://localhost:${port}/api`);
+  const host = process.env.SERVER_HOST ?? "0.0.0.0";
+  await app.listen(port, host);
+  console.info(`[server] API listening on http://${host}:${port}/api`);
 }
 
 await bootstrap();

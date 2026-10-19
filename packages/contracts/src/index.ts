@@ -109,6 +109,51 @@ export interface SongSummary {
   assetVersion: number;
 }
 
+export interface SongAssetDescriptor {
+  id: EntityId;
+  kind: "AUDIO" | "LYRIC_SOURCE";
+  downloadUrl: string;
+  mimeType: string;
+  sizeBytes: number;
+  sha256: string;
+  version: number;
+  fileName: string;
+}
+
+export interface SongAssetManifest {
+  song: SongSummary;
+  audio: SongAssetDescriptor;
+  lyric?: SongAssetDescriptor;
+}
+
+export interface AdminSongSummary extends SongSummary {
+  album?: string;
+  copyrightNote?: string;
+  publishedAt?: string;
+  createdAt: string;
+  audio?: SongAssetDescriptor;
+  lyric?: SongAssetDescriptor;
+}
+
+export interface AdminSongList {
+  items: AdminSongSummary[];
+  total: number;
+}
+
+export interface ImportSongMetadata {
+  title: string;
+  artist: string;
+  album?: string;
+  durationMs: number;
+  copyrightNote: string;
+  rightsConfirmed: true;
+}
+
+export interface SongImportResult {
+  jobId: EntityId;
+  song: AdminSongSummary;
+}
+
 export interface PlaybackSnapshot {
   sessionId: EntityId;
   roomId: EntityId;

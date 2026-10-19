@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { Inject, Logger } from "@nestjs/common";
 import {
   ConnectedSocket,
   MessageBody,
@@ -42,11 +42,11 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(RoomsGateway.name);
 
   constructor(
-    private readonly tokens: TokenService,
-    private readonly prisma: PrismaService,
-    private readonly rooms: RoomsService,
-    private readonly presence: RoomPresenceService,
-    private readonly playback: PlaybackService,
+    @Inject(TokenService) private readonly tokens: TokenService,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RoomsService) private readonly rooms: RoomsService,
+    @Inject(RoomPresenceService) private readonly presence: RoomPresenceService,
+    @Inject(PlaybackService) private readonly playback: PlaybackService,
   ) {}
 
   async handleConnection(client: RoomSocket): Promise<void> {

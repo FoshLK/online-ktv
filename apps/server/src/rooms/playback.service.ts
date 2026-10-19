@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { CurrentUser, PlaybackCommand, PlaybackSnapshot, PlaybackStatus, SongStatus } from "@ktv/contracts";
 import { PrismaService } from "../database/prisma.service.js";
 import type { PlaybackControlDto } from "./playback.dto.js";
@@ -36,7 +36,7 @@ export interface PlaybackTransition {
 export class PlaybackService {
   private readonly startLeadMs = this.readStartLeadMs();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async prepare(roomId: string, songId: string, actor: CurrentUser): Promise<PlaybackSnapshot> {
     const room = await this.prisma.room.findUnique({

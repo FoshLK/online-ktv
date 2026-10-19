@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Inject, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import type { CurrentUser, PlaybackSnapshot } from "@ktv/contracts";
 import { AccessTokenGuard } from "../auth/access-token.guard.js";
 import { CurrentUserParam } from "../auth/current-user.decorator.js";
@@ -10,8 +10,8 @@ import { RoomsGateway } from "./rooms.gateway.js";
 @UseGuards(AccessTokenGuard)
 export class PlaybackController {
   constructor(
-    private readonly playback: PlaybackService,
-    private readonly gateway: RoomsGateway,
+    @Inject(PlaybackService) private readonly playback: PlaybackService,
+    @Inject(RoomsGateway) private readonly gateway: RoomsGateway,
   ) {}
 
   @Post("prepare")
