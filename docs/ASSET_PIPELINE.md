@@ -1,4 +1,4 @@
-# 歌曲资源管线（0.3.0）
+# 歌曲资源管线（0.4.0）
 
 ## 已实现流程
 
@@ -12,6 +12,7 @@
   → Tauri Rust 下载到应用缓存并重新计算 SHA-256
   → 音频与歌词全部就绪后，通过 WebSocket 发送 asset:ready
   → 服务端仅在房间冻结成员全部就绪后安排统一 startAt
+  → 桌面播放器通过受限 asset:// 路径读取缓存，按 startAt 输出音频和 LRC
 ```
 
 当前默认驱动为 `STORAGE_DRIVER=local`，根目录由 `STORAGE_LOCAL_PATH` 指定，默认是仓库下被 Git 忽略的 `storage/objects`。对象键完全由服务端生成，下载接口不接受文件系统路径，因此客户端不能进行目录穿越。

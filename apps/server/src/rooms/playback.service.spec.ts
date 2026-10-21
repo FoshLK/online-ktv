@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { CurrentUser } from "@ktv/contracts";
+import type { CurrentUser, PlaybackStatus } from "@ktv/contracts";
 import type { PrismaService } from "../database/prisma.service.js";
 import { PlaybackService } from "./playback.service.js";
 
@@ -109,6 +109,8 @@ test("the last ready participant schedules one shared START command", async () =
   assert.equal(last.snapshot.state, "SCHEDULED");
   assert.equal(last.snapshot.sequence, 1);
   assert.equal(last.command?.action, "START");
+  assert.equal(last.command?.sessionId, sessionId);
+  assert.equal(last.command?.roomId, roomId);
   assert.equal(last.command?.positionMs, 0);
   assert.equal(roomMarkedPlaying, true);
   assert.ok((last.command?.effectiveAtServerMs ?? 0) > Date.now());
@@ -134,11 +136,55 @@ test("position reports with an old sequence are rejected", async () => {
   assert.equal(participantRead, false);
 });
 
+test("pause derives the authoritative position from the server timeline", async () => {
+  const session = playbackRecord();
+  session.status = "SCHEDULED";
+  session.sequence = 4;
+  session.startAt = new Date(Date.now() - 5_000);
+  session.pausedPositionMs = 1_000;
+  let persistedPosition = -1;
+
+  const prisma = {
+    room: {
+      findUnique: async () => ({
+        id: roomId,
+        ownerId: owner.id,
+        status: "PLAYING",
+        members: [{ userId: owner.id, role: "OWNER" }],
+      }),
+    },
+    playbackSession: {
+      findFirst: async () => session,
+      update: async ({ data }: { data: {
+        status: "PAUSED";
+        sequence: { increment: number };
+        startAt: null;
+        pausedPositionMs: number;
+      } }) => {
+        persistedPosition = data.pausedPositionMs;
+        session.status = data.status;
+        session.sequence += data.sequence.increment;
+        session.startAt = data.startAt;
+        session.pausedPositionMs = data.pausedPositionMs;
+        return session;
+      },
+    },
+  } as unknown as PrismaService;
+
+  const transition = await new PlaybackService(prisma).control(roomId, { action: "PAUSE" }, owner);
+
+  assert.ok(persistedPosition >= 6_700 && persistedPosition <= 7_000);
+  assert.equal(transition.snapshot.state, "PAUSED");
+  assert.equal(transition.command?.sessionId, sessionId);
+  assert.equal(transition.command?.roomId, roomId);
+  assert.equal(transition.command?.positionMs, persistedPosition);
+});
+
 function playbackRecord() {
   return {
     id: sessionId,
     roomId,
-    status: "PREPARING" as "PREPARING" | "SCHEDULED",
+    status: "PREPARING" as PlaybackStatus,
     sequence: 0,
     assetVersion: 3,
     expectedChecksum: checksum,

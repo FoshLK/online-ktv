@@ -178,6 +178,8 @@ export interface PlaybackControlRequest {
 }
 
 export interface PlaybackCommand {
+  sessionId: EntityId;
+  roomId: EntityId;
   action: "START" | "PAUSE" | "RESUME" | "SEEK" | "STOP";
   sequence: number;
   effectiveAtServerMs: number;

@@ -4,6 +4,8 @@ import { ApiError, createBrowserTokenStore, KtvApiClient, resolveKtvServerEndpoi
 import type {
   ClientToServerEvents,
   CurrentUser,
+  PlaybackCommand,
+  PlaybackControlRequest,
   PlaybackSnapshot,
   RoomDetails,
   RoomSummary,
@@ -12,6 +14,7 @@ import type {
 } from "@ktv/contracts";
 import { DesktopShell, Panel, StatusBadge } from "@ktv/ui";
 import { io, type Socket } from "socket.io-client";
+import { SynchronizedPlayer, type CachedPlaybackAssets } from "./playback/SynchronizedPlayer";
 
 const navigation = [
   { id: "hall", label: "房间大厅", icon: "⌂" },
@@ -175,11 +178,17 @@ function KtvHome({
   const [error, setError] = useState("");
   const [socketState, setSocketState] = useState<"offline" | "connecting" | "online">("offline");
   const [clockOffsetMs, setClockOffsetMs] = useState<number | null>(null);
+  const [clockRttMs, setClockRttMs] = useState<number | null>(null);
   const [songs, setSongs] = useState<SongSummary[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(false);
   const [preparingSongId, setPreparingSongId] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<DownloadState[]>([]);
+  const [cachedPlaybackAssets, setCachedPlaybackAssets] = useState<Record<string, CachedPlaybackAssets>>({});
+  const [playbackCommand, setPlaybackCommand] = useState<PlaybackCommand | null>(null);
+  const [controlBusy, setControlBusy] = useState(false);
   const preparingSessions = useRef(new Set<string>());
+  const cachedPlaybackAssetsRef = useRef(new Map<string, CachedPlaybackAssets>());
+  const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
 
   const loadRooms = useCallback(async () => {
     setError("");
@@ -215,17 +224,24 @@ function KtvHome({
   useEffect(() => {
     if (!currentRoom) {
       setSocketState("offline");
+      setClockOffsetMs(null);
+      setClockRttMs(null);
       return;
     }
 
     setSocketState("connecting");
+    setClockOffsetMs(null);
+    setClockRttMs(null);
     const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(roomSocketUrl, {
       auth: { token: api.getAccessToken() },
       transports: ["websocket"],
       reconnection: true,
     });
+    socketRef.current = socket;
     let closed = false;
     const retryTimers = new Set<number>();
+    const clockTimers = new Set<number>();
+    let clockInterval: number | undefined;
 
     const updateDownload = (entry: DownloadState) => {
       setDownloads((items) => {
@@ -236,7 +252,14 @@ function KtvHome({
     };
 
     const prepareAssets = (snapshot: PlaybackSnapshot, attempt = 1) => {
-      if (closed || snapshot.state !== "PREPARING" || !snapshot.waitingUserIds.includes(user.id)) return;
+      if (closed || snapshot.state === "ENDED" || snapshot.state === "FAILED") return;
+      const cachedAsset = cachedPlaybackAssetsRef.current.get(snapshot.sessionId);
+      if (cachedAsset) {
+        if (snapshot.waitingUserIds.includes(user.id)) {
+          socket.emit("asset:ready", { sessionId: snapshot.sessionId, checksum: snapshot.expectedChecksum });
+        }
+        return;
+      }
       if (preparingSessions.current.has(snapshot.sessionId)) return;
       preparingSessions.current.add(snapshot.sessionId);
       updateDownload({
@@ -255,6 +278,7 @@ function KtvHome({
         if (!token) throw new Error("登录状态已失效");
         const assets = [manifest.audio, ...(manifest.lyric ? [manifest.lyric] : [])];
         let audioResult: CachedAsset | undefined;
+        let lyricResult: CachedAsset | undefined;
         for (const asset of assets) {
           const result = await invoke<CachedAsset>("cache_song_asset", {
             url: api.resolveUrl(asset.downloadUrl),
@@ -265,11 +289,32 @@ function KtvHome({
             fileName: asset.fileName,
           });
           if (asset.kind === "AUDIO") audioResult = result;
+          if (asset.kind === "LYRIC_SOURCE") lyricResult = result;
         }
         if (!audioResult) throw new Error("音频资源清单为空");
 
+        const cached: CachedPlaybackAssets = {
+          sessionId: snapshot.sessionId,
+          audioPath: audioResult.path,
+          ...(lyricResult ? { lyricPath: lyricResult.path } : {}),
+        };
+        cachedPlaybackAssetsRef.current.set(snapshot.sessionId, cached);
+        setCachedPlaybackAssets((items) => ({ ...items, [snapshot.sessionId]: cached }));
+        const cacheHit = audioResult.cacheHit && (lyricResult?.cacheHit ?? true);
+
+        if (!snapshot.waitingUserIds.includes(user.id)) {
+          updateDownload({
+            sessionId: snapshot.sessionId,
+            songTitle: snapshot.song.title,
+            status: "ready",
+            detail: `${cacheHit ? "已命中本地缓存" : "资源已恢复"}，播放器已就绪`,
+            path: audioResult.path,
+          });
+          return;
+        }
+
         socket.emit("asset:ready", { sessionId: snapshot.sessionId, checksum: audioResult.sha256 }, (result) => {
-          if (!result.accepted) {
+          if (!result?.accepted) {
             updateDownload({ sessionId: snapshot.sessionId, songTitle: snapshot.song.title, status: "error", detail: "服务器未接受资源就绪状态" });
             return;
           }
@@ -277,7 +322,7 @@ function KtvHome({
             sessionId: snapshot.sessionId,
             songTitle: snapshot.song.title,
             status: "ready",
-            detail: `${audioResult?.cacheHit ? "已命中本地缓存" : "下载完成"}，SHA-256 校验通过`,
+            detail: `${cacheHit ? "已命中本地缓存" : "下载完成"}，SHA-256 校验通过`,
             path: audioResult?.path,
           });
         });
@@ -295,16 +340,36 @@ function KtvHome({
       });
     };
 
+    const pingClock = () => {
+      const sentAt = Date.now();
+      socket.emit("clock:ping", sentAt, (serverMs) => {
+        if (closed) return;
+        const receivedAt = Date.now();
+        const roundTripMs = receivedAt - sentAt;
+        if (roundTripMs > 2_000) return;
+        setClockRttMs(roundTripMs);
+        setClockOffsetMs(serverMs - Math.round((sentAt + receivedAt) / 2));
+      });
+    };
+
     socket.on("connect", () => {
       setSocketState("online");
       socket.emit("room:join", { roomId: currentRoom.id });
-      const sentAt = Date.now();
-      socket.emit("clock:ping", sentAt, (serverMs) => {
-        const receivedAt = Date.now();
-        setClockOffsetMs(serverMs - Math.round((sentAt + receivedAt) / 2));
-      });
+      if (clockInterval !== undefined) window.clearInterval(clockInterval);
+      for (const delay of [0, 180, 420]) {
+        const timer = window.setTimeout(() => {
+          clockTimers.delete(timer);
+          pingClock();
+        }, delay);
+        clockTimers.add(timer);
+      }
+      clockInterval = window.setInterval(pingClock, 15_000);
     });
-    socket.on("disconnect", () => setSocketState("offline"));
+    socket.on("disconnect", () => {
+      setSocketState("offline");
+      if (clockInterval !== undefined) window.clearInterval(clockInterval);
+      clockInterval = undefined;
+    });
     socket.on("room:details", (room) => {
       if (room.id !== currentRoom.id) return;
       setCurrentRoom(room);
@@ -313,19 +378,31 @@ function KtvHome({
     });
     socket.on("playback:snapshot", (snapshot) => {
       if (snapshot.roomId !== currentRoom.id) return;
-      setCurrentRoom((room) => room ? {
-        ...room,
-        status: snapshot.state === "PREPARING" ? room.status : "PLAYING",
-        currentSong: snapshot.song,
-        currentPlayback: snapshot,
-      } : room);
+      setCurrentRoom((room) => {
+        if (!room) return room;
+        if (snapshot.state === "ENDED" || snapshot.state === "FAILED") {
+          return { ...room, status: "OPEN", currentSong: undefined, currentPlayback: undefined };
+        }
+        return {
+          ...room,
+          status: snapshot.state === "PREPARING" ? room.status : "PLAYING",
+          currentSong: snapshot.song,
+          currentPlayback: snapshot,
+        };
+      });
       prepareAssets(snapshot);
+    });
+    socket.on("playback:command", (nextCommand) => {
+      if (nextCommand.roomId === currentRoom.id) setPlaybackCommand(nextCommand);
     });
     socket.on("system:error", (payload) => setError(payload.message));
 
     return () => {
       closed = true;
+      socketRef.current = null;
       retryTimers.forEach((timer) => window.clearTimeout(timer));
+      clockTimers.forEach((timer) => window.clearTimeout(timer));
+      if (clockInterval !== undefined) window.clearInterval(clockInterval);
       socket.emit("room:leave", { roomId: currentRoom.id });
       socket.disconnect();
     };
@@ -353,6 +430,7 @@ function KtvHome({
     try {
       await api.leaveRoom(currentRoom.id);
       setCurrentRoom(null);
+      setPlaybackCommand(null);
       setActiveId("hall");
       await loadRooms();
     } catch (requestError) {
@@ -371,6 +449,7 @@ function KtvHome({
     setError("");
     try {
       const snapshot = await api.preparePlayback(currentRoom.id, { songId: song.id });
+      setPlaybackCommand(null);
       setCurrentRoom((room) => room ? { ...room, currentSong: snapshot.song, currentPlayback: snapshot } : room);
       setActiveId("rooms");
     } catch (requestError) {
@@ -379,6 +458,48 @@ function KtvHome({
       setPreparingSongId(null);
     }
   };
+
+  const controlPlayback = async (action: PlaybackControlRequest["action"], positionMs?: number) => {
+    if (!currentRoom) return;
+    setControlBusy(true);
+    setError("");
+    try {
+      const snapshot = await api.controlPlayback(currentRoom.id, {
+        action,
+        ...(positionMs === undefined ? {} : { positionMs: Math.round(positionMs) }),
+      });
+      setCurrentRoom((room) => room ? {
+        ...room,
+        status: action === "STOP" ? "OPEN" : "PLAYING",
+        currentSong: action === "STOP" ? undefined : snapshot.song,
+        currentPlayback: action === "STOP" ? undefined : snapshot,
+      } : room);
+      if (action === "STOP") setPlaybackCommand(null);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "播放控制失败");
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
+  const reportPlaybackPosition = useCallback((snapshot: PlaybackSnapshot, positionMs: number) => {
+    socketRef.current?.emit("playback:position", {
+      sessionId: snapshot.sessionId,
+      sequence: snapshot.sequence,
+      positionMs,
+      observedAtClientMs: Date.now(),
+    });
+  }, []);
+
+  const currentMembership = currentRoom?.members.find((member) => member.userId === user.id);
+  const canControlPlayback = Boolean(
+    currentRoom && (
+      currentRoom.ownerId === user.id
+      || currentMembership?.role === "MODERATOR"
+      || user.role === "ADMIN"
+      || user.role === "SUPER_ADMIN"
+    )
+  );
 
   const title = activeId === "rooms" ? "我的房间" : activeId === "hall" ? "房间大厅" : navigation.find((item) => item.id === activeId)?.label ?? "线上 KTV";
 
@@ -417,7 +538,7 @@ function KtvHome({
             </section>
 
             {activeId === "rooms" && currentRoom ? (
-              <RoomMembers room={currentRoom} user={user} clockOffsetMs={clockOffsetMs} />
+              <RoomMembers room={currentRoom} user={user} clockOffsetMs={clockOffsetMs} clockRttMs={clockRttMs} />
             ) : (
               <Panel
                 title="在线房间"
@@ -446,7 +567,21 @@ function KtvHome({
             )}
           </div>
 
-          <NowPlaying room={currentRoom} />
+          <SynchronizedPlayer
+            room={currentRoom}
+            assets={currentRoom?.currentPlayback ? cachedPlaybackAssets[currentRoom.currentPlayback.sessionId] : undefined}
+            command={playbackCommand}
+            clockOffsetMs={clockOffsetMs}
+            canControl={canControlPlayback}
+            controlBusy={controlBusy}
+            onControl={controlPlayback}
+            onReport={reportPlaybackPosition}
+            onEnded={(snapshot) => {
+              if (canControlPlayback && currentRoom?.currentPlayback?.sessionId === snapshot.sessionId) {
+                void controlPlayback("STOP");
+              }
+            }}
+          />
         </div>
       ) : activeId === "songs" ? (
         <SongLibrary
@@ -474,6 +609,7 @@ function KtvHome({
           onCancel={() => setShowCreate(false)}
           onCreated={(room) => {
             setCurrentRoom(room);
+            setPlaybackCommand(null);
             setShowCreate(false);
             setActiveId("rooms");
             void loadRooms();
@@ -623,9 +759,22 @@ function SongLibrary({
   );
 }
 
-function RoomMembers({ room, user, clockOffsetMs }: { room: RoomDetails; user: CurrentUser; clockOffsetMs: number | null }) {
+function RoomMembers({
+  room,
+  user,
+  clockOffsetMs,
+  clockRttMs,
+}: {
+  room: RoomDetails;
+  user: CurrentUser;
+  clockOffsetMs: number | null;
+  clockRttMs: number | null;
+}) {
   return (
-    <Panel title={`房间成员 · ${room.memberCount}/${room.capacity}`} action={<span className="clock-state">时钟偏移 {clockOffsetMs === null ? "测量中" : `${clockOffsetMs >= 0 ? "+" : ""}${clockOffsetMs} ms`}</span>}>
+    <Panel
+      title={`房间成员 · ${room.memberCount}/${room.capacity}`}
+      action={<span className="clock-state">时钟偏移 {clockOffsetMs === null ? "测量中" : `${clockOffsetMs >= 0 ? "+" : ""}${clockOffsetMs} ms`}{clockRttMs === null ? "" : ` · RTT ${clockRttMs} ms`}</span>}
+    >
       <div className="member-list">
         {room.members.map((member) => (
           <div className="member-row" key={member.userId}>
@@ -636,31 +785,6 @@ function RoomMembers({ room, user, clockOffsetMs }: { room: RoomDetails; user: C
         ))}
       </div>
     </Panel>
-  );
-}
-
-function NowPlaying({ room }: { room: RoomDetails | null }) {
-  const playback = room?.currentPlayback;
-  const song = playback?.song;
-  return (
-    <aside className="now-playing">
-      <div className="vinyl"><div>♫</div></div>
-      <span className="eyebrow">{song ? "正在准备" : "房间播放器"}</span>
-      <h2>{song?.title ?? "尚未点歌"}</h2>
-      <p>{song?.artist ?? "进入房间后可查看播放队列"}</p>
-      <div className="lyric-preview">
-        <strong>{playback ? (playback.state === "PREPARING" ? "正在等待全部成员下载歌曲" : "资源已就绪，等待统一开唱") : "等待房主选择歌曲"}</strong>
-        <span>同步歌词将在这里显示</span>
-      </div>
-      <div className="progress-track"><span style={{ width: "0%" }} /></div>
-      <div className="progress-time"><span>00:00</span><span>{song ? formatDuration(song.durationMs) : "--:--"}</span></div>
-      <div className="ready-state">
-        <span>资源状态</span>
-        <StatusBadge tone={playback && playback.waitingUserIds.length === 0 ? "success" : "warning"}>
-          {playback ? `${playback.readyUserIds.length} / ${playback.readyUserIds.length + playback.waitingUserIds.length} 已就绪` : "尚未开始"}
-        </StatusBadge>
-      </div>
-    </aside>
   );
 }
 

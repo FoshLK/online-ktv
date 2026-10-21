@@ -1,6 +1,6 @@
 {
   "name": "online-ktv",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "线上 KTV 桌面端、管理端和服务端单仓库",
   "workspaces": [

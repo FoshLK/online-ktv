@@ -2,7 +2,7 @@
 
 Windows 桌面端线上 KTV 项目，采用 npm workspaces 管理用户端、管理端、服务端和共享包。
 
-当前版本：`0.3.0`。用户桌面端已接入房间、全员资源就绪屏障、原生资源缓存与 SHA-256 校验；后台桌面端已支持真实用户管理、授权歌曲上传、曲库发布/下架及审计记录。
+当前版本：`0.4.0`。用户桌面端已具备全员资源屏障、服务器时间轴、本地音频输出、同步 LRC、漂移校正和房主播放控制；后台桌面端支持真实用户管理、授权歌曲上传、曲库发布/下架及审计记录。
 
 ## 仓库结构
 
@@ -39,7 +39,7 @@ packages/
 
 首次注册时，如果 `.env` 中尚未填写 `SMTP_AUTH_CODE`，验证码会以 `[development mailbox]` 开头输出到服务端终端。配置 QQ 邮箱 SMTP 授权码后会改为真实发信。用户完成注册和邮箱验证后，可运行 `npm run admin:promote -- <用户名或邮箱>` 授予后台管理员权限。
 
-后台“曲库管理”接受有效的 MP3/WAV 与 UTF-8 LRC。服务端先校验格式与授权确认，再计算哈希、原子写入 `storage/objects`、提交数据库并发布。房主发起播放后，每个用户桌面端通过 Rust 原生层下载音频和歌词到应用缓存；音频哈希匹配播放会话后才自动发送 `asset:ready`。
+后台“曲库管理”接受有效的 MP3/WAV 与 UTF-8 LRC。服务端先校验格式与授权确认，再计算哈希、原子写入 `storage/objects`、提交数据库并发布。房主发起播放后，每个用户桌面端通过 Rust 原生层下载音频和歌词到应用缓存；音频哈希匹配播放会话后才自动发送 `asset:ready`。全员就绪后，客户端按服务器安排的未来时间同时开播，并通过轻微变速或定位修正播放漂移。
 
 ## 桌面端前置条件
 
@@ -54,4 +54,4 @@ packages/
 
 详细方案见 [线上KTV桌面端项目规划书.md](./线上KTV桌面端项目规划书.md)，代码边界和后续实现顺序见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
 
-房间接口和全员资源就绪屏障见 [docs/ROOMS_AND_SYNC.md](./docs/ROOMS_AND_SYNC.md)，歌曲资源链路见 [docs/ASSET_PIPELINE.md](./docs/ASSET_PIPELINE.md)。
+房间接口和全员资源就绪屏障见 [docs/ROOMS_AND_SYNC.md](./docs/ROOMS_AND_SYNC.md)，播放器时间轴与校正策略见 [docs/PLAYBACK_ENGINE.md](./docs/PLAYBACK_ENGINE.md)，歌曲资源链路见 [docs/ASSET_PIPELINE.md](./docs/ASSET_PIPELINE.md)。

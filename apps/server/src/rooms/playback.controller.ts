@@ -33,8 +33,8 @@ export class PlaybackController {
     @CurrentUserParam() user: CurrentUser,
   ): Promise<PlaybackSnapshot> {
     const transition = await this.playback.control(roomId, dto, user);
-    this.gateway.broadcastPlaybackSnapshot(transition.snapshot);
     if (transition.command) this.gateway.broadcastPlaybackCommand(roomId, transition.command);
+    this.gateway.broadcastPlaybackSnapshot(transition.snapshot);
     await this.gateway.broadcastRoom(roomId);
     return transition.snapshot;
   }

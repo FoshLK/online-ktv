@@ -1,6 +1,6 @@
 {
   "name": "@ktv/server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test src/**/*.spec.ts",
+    "test": "node ../../scripts/run-tsx.cjs --test src/**/*.spec.ts",
     "db:dev": "pglite-server --db=../../data/pglite --host=127.0.0.1 --port=5432 --max-connections=20",
     "db:generate": "prisma generate --config prisma.config.ts",
     "db:migrate": "prisma migrate dev --config prisma.config.ts",
@@ -17,9 +17,9 @@
     "db:deploy:pglite": "cross-env \"DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public&sslmode=disable\" prisma migrate deploy --config prisma.config.ts",
     "db:status": "prisma migrate status --config prisma.config.ts",
     "db:status:pglite": "cross-env \"DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public&sslmode=disable\" prisma migrate status --config prisma.config.ts",
-    "db:seed:pglite": "cross-env \"DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public&sslmode=disable\" tsx src/scripts/seed-development.ts",
-    "smoke:resources": "tsx src/scripts/smoke-resources.ts",
-    "admin:promote": "tsx src/scripts/promote-admin.ts"
+    "db:seed:pglite": "cross-env \"DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres?schema=public&sslmode=disable\" node ../../scripts/run-tsx.cjs src/scripts/seed-development.ts",
+    "smoke:resources": "node ../../scripts/run-tsx.cjs src/scripts/smoke-resources.ts",
+    "admin:promote": "node ../../scripts/run-tsx.cjs src/scripts/promote-admin.ts"
   },
   "dependencies": {
     "@ktv/contracts": "*",

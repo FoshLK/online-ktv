@@ -131,6 +131,8 @@ export class PlaybackService {
         });
         await transaction.room.update({ where: { id: refreshed.roomId }, data: { status: "PLAYING" } });
         command = {
+          sessionId: refreshed.id,
+          roomId: refreshed.roomId,
           action: "START",
           sequence: refreshed.sequence,
           effectiveAtServerMs: startAt.getTime(),
@@ -187,12 +189,8 @@ export class PlaybackService {
     });
     if (!session) throw new NotFoundException("当前没有可控制的播放会话");
 
-    const effectiveAt = new Date(Date.now() + 800);
-    const positionMs = dto.positionMs ?? session.pausedPositionMs ?? 0;
-    if ((dto.action === "PAUSE" || dto.action === "SEEK") && dto.positionMs === undefined) {
-      throw new BadRequestException("暂停或跳转需要提供当前播放位置");
-    }
-    if (positionMs > session.song.durationMs) throw new BadRequestException("播放位置超过歌曲时长");
+    const effectiveAt = new Date(Date.now() + (dto.action === "STOP" ? 0 : 800));
+    let positionMs: number;
 
     let data: {
       status: PlaybackStatus;
@@ -206,22 +204,28 @@ export class PlaybackService {
     switch (dto.action) {
       case "PAUSE":
         if (!(["SCHEDULED", "PLAYING"] as PlaybackStatus[]).includes(session.status)) throw new ConflictException("当前状态不能暂停");
+        positionMs = this.positionAt(session as PlaybackRecord, effectiveAt.getTime());
         data = { status: "PAUSED", sequence: { increment: 1 }, startAt: null, pausedPositionMs: positionMs };
         commandAction = "PAUSE";
         break;
       case "RESUME":
         if (session.status !== "PAUSED") throw new ConflictException("只有暂停状态可以继续播放");
+        positionMs = session.pausedPositionMs ?? 0;
         data = { status: "SCHEDULED", sequence: { increment: 1 }, startAt: effectiveAt };
         commandAction = "RESUME";
         break;
       case "SEEK":
         if (session.status === "PREPARING") throw new ConflictException("资源尚未准备完成");
+        if (dto.positionMs === undefined) throw new BadRequestException("跳转需要提供播放位置");
+        positionMs = dto.positionMs;
+        if (positionMs > session.song.durationMs) throw new BadRequestException("播放位置超过歌曲时长");
         data = session.status === "PAUSED"
           ? { status: "PAUSED", sequence: { increment: 1 }, pausedPositionMs: positionMs }
           : { status: "SCHEDULED", sequence: { increment: 1 }, startAt: effectiveAt, pausedPositionMs: positionMs };
         commandAction = "SEEK";
         break;
       case "STOP":
+        positionMs = this.positionAt(session as PlaybackRecord, Date.now());
         data = { status: "ENDED", sequence: { increment: 1 }, endedAt: new Date() };
         commandAction = "STOP";
         break;
@@ -239,6 +243,8 @@ export class PlaybackService {
     return {
       snapshot: this.toSnapshot(updated as PlaybackRecord),
       command: {
+        sessionId: updated.id,
+        roomId: updated.roomId,
         action: commandAction,
         sequence: updated.sequence,
         effectiveAtServerMs: effectiveAt.getTime(),
@@ -261,6 +267,11 @@ export class PlaybackService {
 
   private toSnapshot(session: PlaybackRecord): PlaybackSnapshot {
     const readyUserIds = session.readyStates.filter((state) => state.readyAt).map((state) => state.userId);
+    const state = session.status === "SCHEDULED"
+      && session.startAt !== null
+      && session.startAt.getTime() <= Date.now()
+      ? "PLAYING"
+      : session.status;
     return {
       sessionId: session.id,
       roomId: session.roomId,
@@ -272,7 +283,7 @@ export class PlaybackService {
         status: session.song.status,
         assetVersion: session.song.assetVersion,
       },
-      state: session.status,
+      state,
       sequence: session.sequence,
       assetVersion: session.assetVersion,
       expectedChecksum: session.expectedChecksum,
@@ -281,6 +292,14 @@ export class PlaybackService {
       readyUserIds,
       waitingUserIds: session.readyStates.filter((state) => !state.readyAt).map((state) => state.userId),
     };
+  }
+
+  private positionAt(session: PlaybackRecord, serverMs: number): number {
+    let positionMs = session.pausedPositionMs ?? 0;
+    if ((session.status === "SCHEDULED" || session.status === "PLAYING") && session.startAt) {
+      positionMs += Math.max(0, serverMs - session.startAt.getTime());
+    }
+    return Math.min(session.song.durationMs, Math.max(0, Math.round(positionMs)));
   }
 
   private assertCanControl(

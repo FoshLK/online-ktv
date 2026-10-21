@@ -115,8 +115,8 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<{ accepted: boolean; scheduled: boolean }> {
     const user = this.requireUser(client);
     const transition = await this.playback.markReady(payload.sessionId, user.id, payload.checksum);
-    this.broadcastPlaybackSnapshot(transition.snapshot);
     if (transition.command) this.broadcastPlaybackCommand(transition.snapshot.roomId, transition.command);
+    this.broadcastPlaybackSnapshot(transition.snapshot);
     await this.broadcastRoom(transition.snapshot.roomId);
     return { accepted: true, scheduled: transition.command?.action === "START" };
   }

@@ -255,7 +255,11 @@ export class RoomsService {
       sessionId: playback.id,
       roomId: room.id,
       song,
-      state: playback.status,
+      state: playback.status === "SCHEDULED"
+        && playback.startAt !== null
+        && playback.startAt.getTime() <= Date.now()
+        ? "PLAYING"
+        : playback.status,
       sequence: playback.sequence,
       assetVersion: playback.assetVersion,
       expectedChecksum: playback.expectedChecksum,
