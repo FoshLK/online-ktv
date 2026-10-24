@@ -1,5 +1,11 @@
 import type {
+  AdminAuditLogList,
+  AdminImportJobList,
   AdminOverview,
+  AdminPlaybackHistoryList,
+  AdminRoomActionRequest,
+  AdminRoomCloseResult,
+  AdminRoomList,
   AdminSongList,
   AdminSongSummary,
   AdminUpdateUserRequest,
@@ -165,6 +171,28 @@ export class KtvApiClient {
     return this.request("/admin/overview", { method: "GET" });
   }
 
+  async listAdminRooms(): Promise<AdminRoomList> {
+    return this.request("/admin/rooms", { method: "GET" });
+  }
+
+  async closeAdminRoom(roomId: string, payload: AdminRoomActionRequest): Promise<AdminRoomCloseResult> {
+    return this.request(`/admin/rooms/${encodeURIComponent(roomId)}/close`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async removeAdminRoomMember(
+    roomId: string,
+    userId: string,
+    payload: AdminRoomActionRequest,
+  ): Promise<RoomDetails> {
+    return this.request(
+      `/admin/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}/remove`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
   async listAdminUsers(query = "", page = 1, pageSize = 50): Promise<AdminUserList> {
     const parameters = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (query) parameters.set("q", query);
@@ -176,6 +204,18 @@ export class KtvApiClient {
       method: "PATCH",
       body: JSON.stringify(payload),
     });
+  }
+
+  async listAdminImportJobs(query = "", page = 1, pageSize = 50): Promise<AdminImportJobList> {
+    return this.request(`/admin/import-jobs?${this.adminListParameters(query, page, pageSize)}`, { method: "GET" });
+  }
+
+  async listAdminPlaybackHistory(query = "", page = 1, pageSize = 50): Promise<AdminPlaybackHistoryList> {
+    return this.request(`/admin/playback-history?${this.adminListParameters(query, page, pageSize)}`, { method: "GET" });
+  }
+
+  async listAdminAuditLogs(query = "", page = 1, pageSize = 50): Promise<AdminAuditLogList> {
+    return this.request(`/admin/audit-logs?${this.adminListParameters(query, page, pageSize)}`, { method: "GET" });
   }
 
   async listSongs(query = ""): Promise<SongSummary[]> {
@@ -251,6 +291,12 @@ export class KtvApiClient {
 
   clearSession(): void {
     this.tokenStore.clear();
+  }
+
+  private adminListParameters(query: string, page: number, pageSize: number): string {
+    const parameters = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+    if (query) parameters.set("q", query);
+    return parameters.toString();
   }
 
   private async refresh(): Promise<boolean> {

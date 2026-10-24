@@ -1,6 +1,6 @@
 [package]
 name = "ktv-client"
-version = "0.4.0"
+version = "0.5.0"
 description = "线上 KTV 用户桌面端"
 authors = ["online-ktv contributors"]
 edition = "2021"

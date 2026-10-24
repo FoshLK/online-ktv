@@ -6,6 +6,7 @@ export type RoomStatus = "OPEN" | "PLAYING" | "CLOSED";
 export type RoomMemberRole = "OWNER" | "MODERATOR" | "MEMBER";
 export type SongStatus = "DRAFT" | "PROCESSING" | "PUBLISHED" | "DISABLED";
 export type PlaybackStatus = "PREPARING" | "SCHEDULED" | "PLAYING" | "PAUSED" | "ENDED" | "FAILED";
+export type ImportJobStatus = "QUEUED" | "RUNNING" | "REVIEW_REQUIRED" | "FAILED" | "COMPLETED";
 
 export interface CurrentUser {
   id: EntityId;
@@ -195,6 +196,22 @@ export interface AdminOverview {
     pendingImportJobs: number;
   };
   activeRooms: RoomSummary[];
+  recentImportJobs: AdminImportJobSummary[];
+}
+
+export interface AdminRoomList {
+  items: RoomDetails[];
+  total: number;
+  generatedAt: string;
+}
+
+export interface AdminRoomActionRequest {
+  reason: string;
+}
+
+export interface AdminRoomCloseResult {
+  roomId: EntityId;
+  closed: true;
 }
 
 export interface AdminUserSummary extends CurrentUser {
@@ -213,6 +230,81 @@ export interface AdminUpdateUserRequest {
   status?: UserStatus;
   role?: UserRole;
   reason: string;
+}
+
+export interface AdminImportJobSummary {
+  id: EntityId;
+  status: ImportJobStatus;
+  progress: number;
+  sourceType: string;
+  sourceLabel?: string;
+  errorCode?: string;
+  errorDetail?: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  creator: {
+    id: EntityId;
+    username: string;
+  };
+  song?: {
+    id: EntityId;
+    title: string;
+    artist: string;
+  };
+}
+
+export interface AdminImportJobList {
+  items: AdminImportJobSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AdminPlaybackHistoryItem {
+  id: EntityId;
+  roomId: EntityId;
+  roomName: string;
+  song: SongSummary;
+  state: PlaybackStatus;
+  sequence: number;
+  assetVersion: number;
+  participantCount: number;
+  readyCount: number;
+  createdAt: string;
+  startedAt?: string;
+  endedAt?: string;
+  updatedAt: string;
+}
+
+export interface AdminPlaybackHistoryList {
+  items: AdminPlaybackHistoryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AdminAuditLogSummary {
+  id: EntityId;
+  actor?: {
+    id: EntityId;
+    username: string;
+  };
+  action: string;
+  targetType: string;
+  targetId?: string;
+  reason?: string;
+  beforeState?: unknown;
+  afterState?: unknown;
+  ipAddress?: string;
+  createdAt: string;
+}
+
+export interface AdminAuditLogList {
+  items: AdminAuditLogSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface ApiHealth {

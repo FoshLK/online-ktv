@@ -1,9 +1,73 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { AdminOverview, AdminUserList, AdminUserSummary, CurrentUser } from "@ktv/contracts";
+import type {
+  AdminAuditLogList,
+  AdminAuditLogSummary,
+  AdminImportJobList,
+  AdminImportJobSummary,
+  AdminOverview,
+  AdminPlaybackHistoryItem,
+  AdminPlaybackHistoryList,
+  AdminRoomCloseResult,
+  AdminRoomList,
+  AdminUserList,
+  AdminUserSummary,
+  CurrentUser,
+  RoomDetails,
+} from "@ktv/contracts";
 import { PrismaService } from "../database/prisma.service.js";
 import { RoomPresenceService } from "../rooms/room-presence.service.js";
 import { RoomsService } from "../rooms/rooms.service.js";
-import type { AdminUpdateUserDto, AdminUserQueryDto } from "./admin.dto.js";
+import type { AdminListQueryDto, AdminRoomActionDto, AdminUpdateUserDto, AdminUserQueryDto } from "./admin.dto.js";
+
+interface ImportJobRecord {
+  id: string;
+  status: AdminImportJobSummary["status"];
+  progress: number;
+  sourceType: string;
+  sourceLabel: string | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+  createdAt: Date;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  creator: { id: string; username: string };
+  song: { id: string; title: string; artist: string } | null;
+}
+
+interface PlaybackHistoryRecord {
+  id: string;
+  roomId: string;
+  status: AdminPlaybackHistoryItem["state"];
+  sequence: number;
+  assetVersion: number;
+  startAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  endedAt: Date | null;
+  room: { name: string };
+  song: {
+    id: string;
+    title: string;
+    artist: string;
+    durationMs: number;
+    status: AdminPlaybackHistoryItem["song"]["status"];
+    assetVersion: number;
+  };
+  readyStates: Array<{ readyAt: Date | null }>;
+}
+
+interface AuditLogRecord {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  reason: string | null;
+  beforeState: unknown;
+  afterState: unknown;
+  ipAddress: string | null;
+  createdAt: Date;
+  actor: { id: string; username: string } | null;
+}
 
 @Injectable()
 export class AdminService {
@@ -14,13 +78,21 @@ export class AdminService {
   ) {}
 
   async getOverview(): Promise<AdminOverview> {
-    const [registeredUsers, activeRooms, pendingImportJobs, roomSummaries] = await Promise.all([
+    const [registeredUsers, activeRooms, pendingImportJobs, roomSummaries, recentImportJobs] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.room.count({ where: { status: { in: ["OPEN", "PLAYING"] } } }),
       this.prisma.songImportJob.count({
         where: { status: { in: ["QUEUED", "RUNNING", "REVIEW_REQUIRED", "FAILED"] } },
       }),
       this.rooms.listActiveRooms(),
+      this.prisma.songImportJob.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        include: {
+          creator: { select: { id: true, username: true } },
+          song: { select: { id: true, title: true, artist: true } },
+        },
+      }),
     ]);
 
     return {
@@ -32,7 +104,27 @@ export class AdminService {
         pendingImportJobs,
       },
       activeRooms: roomSummaries,
+      recentImportJobs: recentImportJobs.map((job) => this.toImportJob(job as ImportJobRecord)),
     };
+  }
+
+  async listRooms(): Promise<AdminRoomList> {
+    const items = await this.rooms.listActiveRooms();
+    return { items, total: items.length, generatedAt: new Date().toISOString() };
+  }
+
+  async closeRoom(roomId: string, dto: AdminRoomActionDto, actor: CurrentUser): Promise<AdminRoomCloseResult> {
+    await this.rooms.closeRoom(roomId, actor, dto.reason);
+    return { roomId, closed: true };
+  }
+
+  removeRoomMember(
+    roomId: string,
+    userId: string,
+    dto: AdminRoomActionDto,
+    actor: CurrentUser,
+  ): Promise<RoomDetails> {
+    return this.rooms.removeMember(roomId, userId, actor, dto.reason);
   }
 
   async listUsers(query: AdminUserQueryDto): Promise<AdminUserList> {
@@ -110,6 +202,151 @@ export class AdminService {
       });
       return this.toAdminUser(updated, activeSessionCount);
     });
+  }
+
+  async listImportJobs(query: AdminListQueryDto): Promise<AdminImportJobList> {
+    const where = query.q ? {
+      OR: [
+        { sourceLabel: { contains: query.q, mode: "insensitive" as const } },
+        { creator: { username: { contains: query.q, mode: "insensitive" as const } } },
+        { song: { is: { title: { contains: query.q, mode: "insensitive" as const } } } },
+        { song: { is: { artist: { contains: query.q, mode: "insensitive" as const } } } },
+      ],
+    } : {};
+    const [jobs, total] = await this.prisma.$transaction([
+      this.prisma.songImportJob.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          creator: { select: { id: true, username: true } },
+          song: { select: { id: true, title: true, artist: true } },
+        },
+      }),
+      this.prisma.songImportJob.count({ where }),
+    ]);
+    return {
+      items: jobs.map((job) => this.toImportJob(job as ImportJobRecord)),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  async listPlaybackHistory(query: AdminListQueryDto): Promise<AdminPlaybackHistoryList> {
+    const where = query.q ? {
+      OR: [
+        { room: { name: { contains: query.q, mode: "insensitive" as const } } },
+        { song: { title: { contains: query.q, mode: "insensitive" as const } } },
+        { song: { artist: { contains: query.q, mode: "insensitive" as const } } },
+      ],
+    } : {};
+    const [sessions, total] = await this.prisma.$transaction([
+      this.prisma.playbackSession.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          room: { select: { name: true } },
+          song: true,
+          readyStates: { select: { readyAt: true } },
+        },
+      }),
+      this.prisma.playbackSession.count({ where }),
+    ]);
+    return {
+      items: sessions.map((session) => this.toPlaybackHistory(session as PlaybackHistoryRecord)),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  async listAuditLogs(query: AdminListQueryDto): Promise<AdminAuditLogList> {
+    const where = query.q ? {
+      OR: [
+        { action: { contains: query.q, mode: "insensitive" as const } },
+        { targetType: { contains: query.q, mode: "insensitive" as const } },
+        { targetId: { contains: query.q, mode: "insensitive" as const } },
+        { reason: { contains: query.q, mode: "insensitive" as const } },
+        { actor: { is: { username: { contains: query.q, mode: "insensitive" as const } } } },
+      ],
+    } : {};
+    const [logs, total] = await this.prisma.$transaction([
+      this.prisma.adminAuditLog.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: { actor: { select: { id: true, username: true } } },
+      }),
+      this.prisma.adminAuditLog.count({ where }),
+    ]);
+    return {
+      items: logs.map((log) => this.toAuditLog(log as AuditLogRecord)),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  private toImportJob(job: ImportJobRecord): AdminImportJobSummary {
+    return {
+      id: job.id,
+      status: job.status,
+      progress: job.progress,
+      sourceType: job.sourceType,
+      sourceLabel: job.sourceLabel ?? undefined,
+      errorCode: job.errorCode ?? undefined,
+      errorDetail: job.errorDetail ?? undefined,
+      createdAt: job.createdAt.toISOString(),
+      startedAt: job.startedAt?.toISOString(),
+      finishedAt: job.finishedAt?.toISOString(),
+      creator: job.creator,
+      song: job.song ?? undefined,
+    };
+  }
+
+  private toPlaybackHistory(session: PlaybackHistoryRecord): AdminPlaybackHistoryItem {
+    return {
+      id: session.id,
+      roomId: session.roomId,
+      roomName: session.room.name,
+      song: {
+        id: session.song.id,
+        title: session.song.title,
+        artist: session.song.artist,
+        durationMs: session.song.durationMs,
+        status: session.song.status,
+        assetVersion: session.song.assetVersion,
+      },
+      state: session.status,
+      sequence: session.sequence,
+      assetVersion: session.assetVersion,
+      participantCount: session.readyStates.length,
+      readyCount: session.readyStates.filter((state) => state.readyAt).length,
+      createdAt: session.createdAt.toISOString(),
+      startedAt: session.startAt?.toISOString(),
+      endedAt: session.endedAt?.toISOString(),
+      updatedAt: session.updatedAt.toISOString(),
+    };
+  }
+
+  private toAuditLog(log: AuditLogRecord): AdminAuditLogSummary {
+    return {
+      id: log.id,
+      actor: log.actor ?? undefined,
+      action: log.action,
+      targetType: log.targetType,
+      targetId: log.targetId ?? undefined,
+      reason: log.reason ?? undefined,
+      beforeState: log.beforeState ?? undefined,
+      afterState: log.afterState ?? undefined,
+      ipAddress: log.ipAddress ?? undefined,
+      createdAt: log.createdAt.toISOString(),
+    };
   }
 
   private toAdminUser(user: {

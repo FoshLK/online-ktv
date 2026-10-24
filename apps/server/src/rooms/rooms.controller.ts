@@ -3,12 +3,16 @@ import type { CurrentUser, JoinRoomResult, LeaveRoomResult, RoomDetails, RoomSum
 import { AccessTokenGuard } from "../auth/access-token.guard.js";
 import { CurrentUserParam } from "../auth/current-user.decorator.js";
 import { CreateRoomDto, UpdateRoomDto } from "./rooms.dto.js";
+import { RoomsGateway } from "./rooms.gateway.js";
 import { RoomsService } from "./rooms.service.js";
 
 @Controller("rooms")
 @UseGuards(AccessTokenGuard)
 export class RoomsController {
-  constructor(@Inject(RoomsService) private readonly rooms: RoomsService) {}
+  constructor(
+    @Inject(RoomsService) private readonly rooms: RoomsService,
+    @Inject(RoomsGateway) private readonly gateway: RoomsGateway,
+  ) {}
 
   @Get()
   listRooms(): Promise<RoomSummary[]> {
@@ -37,20 +41,28 @@ export class RoomsController {
   }
 
   @Post(":roomId/leave")
-  leaveRoom(
+  async leaveRoom(
     @Param("roomId", ParseUUIDPipe) roomId: string,
     @CurrentUserParam() user: CurrentUser,
   ): Promise<LeaveRoomResult> {
-    return this.rooms.leaveRoom(roomId, user);
+    const result = await this.rooms.leaveRoom(roomId, user);
+    if (result.roomClosed) {
+      await this.gateway.closeRoomChannel(roomId, "房主已关闭房间");
+    } else {
+      await this.gateway.reconcileRoomAfterMembershipChange(roomId);
+    }
+    return result;
   }
 
   @Patch(":roomId")
-  updateRoom(
+  async updateRoom(
     @Param("roomId", ParseUUIDPipe) roomId: string,
     @CurrentUserParam() user: CurrentUser,
     @Body() dto: UpdateRoomDto,
   ): Promise<RoomDetails> {
-    return this.rooms.updateRoom(roomId, user, dto);
+    const room = await this.rooms.updateRoom(roomId, user, dto);
+    await this.gateway.broadcastRoom(roomId);
+    return room;
   }
 
   @Delete(":roomId")
@@ -60,14 +72,17 @@ export class RoomsController {
     @CurrentUserParam() user: CurrentUser,
   ): Promise<void> {
     await this.rooms.closeRoom(roomId, user);
+    await this.gateway.closeRoomChannel(roomId, "房间已由房主或管理员关闭");
   }
 
   @Delete(":roomId/members/:userId")
-  removeMember(
+  async removeMember(
     @Param("roomId", ParseUUIDPipe) roomId: string,
     @Param("userId", ParseUUIDPipe) userId: string,
     @CurrentUserParam() actor: CurrentUser,
   ): Promise<RoomDetails> {
-    return this.rooms.removeMember(roomId, userId, actor);
+    await this.rooms.removeMember(roomId, userId, actor);
+    await this.gateway.evictUserFromRoom(roomId, userId, "你已被移出房间");
+    return this.rooms.getRoomForBroadcast(roomId);
   }
 }

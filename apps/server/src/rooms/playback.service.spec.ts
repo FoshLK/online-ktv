@@ -116,6 +116,45 @@ test("the last ready participant schedules one shared START command", async () =
   assert.ok((last.command?.effectiveAtServerMs ?? 0) > Date.now());
 });
 
+test("reconcile schedules playback after a waiting participant is removed", async () => {
+  const session = playbackRecord();
+  session.readyStates = [{ userId: owner.id, checksum, readyAt: new Date() }];
+  let roomMarkedPlaying = false;
+  const transaction = {
+    playbackSession: {
+      findFirst: async () => session,
+      update: async ({ data }: { data: {
+        status: "SCHEDULED";
+        sequence: { increment: number };
+        startAt: Date;
+        pausedPositionMs: number;
+      } }) => {
+        session.status = data.status;
+        session.sequence += data.sequence.increment;
+        session.startAt = data.startAt;
+        session.pausedPositionMs = data.pausedPositionMs;
+        return session;
+      },
+    },
+    room: {
+      update: async () => {
+        roomMarkedPlaying = true;
+        return {};
+      },
+    },
+  };
+  const prisma = {
+    $transaction: async (callback: (client: typeof transaction) => unknown) => callback(transaction),
+  } as unknown as PrismaService;
+
+  const transition = await new PlaybackService(prisma).reconcilePreparing(roomId);
+
+  assert.equal(transition?.snapshot.state, "SCHEDULED");
+  assert.equal(transition?.command?.action, "START");
+  assert.equal(transition?.snapshot.waitingUserIds.length, 0);
+  assert.equal(roomMarkedPlaying, true);
+});
+
 test("position reports with an old sequence are rejected", async () => {
   let participantRead = false;
   const prisma = {

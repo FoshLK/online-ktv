@@ -13,7 +13,6 @@ import type {
   RoomDetails,
   RoomMemberRole,
   RoomStatus,
-  RoomSummary,
   SongStatus,
 } from "@ktv/contracts";
 import { PrismaService } from "../database/prisma.service.js";
@@ -64,7 +63,7 @@ export class RoomsService {
     @Inject(RoomPresenceService) private readonly presence: RoomPresenceService,
   ) {}
 
-  async listActiveRooms(): Promise<RoomSummary[]> {
+  async listActiveRooms(): Promise<RoomDetails[]> {
     const rooms = await this.prisma.room.findMany({
       where: { status: { in: ["OPEN", "PLAYING"] } },
       orderBy: { updatedAt: "desc" },
@@ -158,18 +157,25 @@ export class RoomsService {
     const membership = room.members.find((member) => member.userId === user.id);
     if (!membership) throw new NotFoundException("你不在这个房间中");
 
-    const now = new Date();
     if (room.ownerId === user.id) {
-      await this.prisma.$transaction([
-        this.prisma.room.update({ where: { id: roomId }, data: { status: "CLOSED", closedAt: now } }),
-        this.prisma.roomMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: now } }),
-      ]);
+      await this.closeRoom(roomId, user);
       return { roomId, left: true, roomClosed: true };
     }
 
-    await this.prisma.roomMember.update({
-      where: { roomId_userId: { roomId, userId: user.id } },
-      data: { leftAt: now },
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.roomMember.update({
+        where: { roomId_userId: { roomId, userId: user.id } },
+        data: { leftAt: new Date() },
+      });
+      const preparing = await transaction.playbackSession.findFirst({
+        where: { roomId, status: "PREPARING" },
+        select: { id: true },
+      });
+      if (preparing) {
+        await transaction.playbackReadyState.deleteMany({
+          where: { playbackSessionId: preparing.id, userId: user.id },
+        });
+      }
     });
     return { roomId, left: true, roomClosed: false };
   }
@@ -191,25 +197,92 @@ export class RoomsService {
     return this.getRoomForBroadcast(roomId);
   }
 
-  async closeRoom(roomId: string, user: CurrentUser): Promise<void> {
+  async closeRoom(roomId: string, user: CurrentUser, auditReason?: string): Promise<void> {
     const room = await this.findRoom(roomId);
     this.assertCanManage(room, user);
     const now = new Date();
-    await this.prisma.$transaction([
-      this.prisma.room.update({ where: { id: roomId }, data: { status: "CLOSED", closedAt: now } }),
-      this.prisma.roomMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: now } }),
-    ]);
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.room.update({ where: { id: roomId }, data: { status: "CLOSED", closedAt: now } });
+      await transaction.roomMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: now } });
+      await transaction.playbackSession.updateMany({
+        where: { roomId, status: { in: [...activePlaybackStates] } },
+        data: { status: "ENDED", endedAt: now },
+      });
+      await transaction.playQueueItem.updateMany({
+        where: { roomId, status: { in: ["QUEUED", "PLAYING"] } },
+        data: { status: "SKIPPED" },
+      });
+      if (auditReason) {
+        await transaction.adminAuditLog.create({
+          data: {
+            actorId: user.id,
+            action: "ROOM_FORCE_CLOSE",
+            targetType: "Room",
+            targetId: roomId,
+            reason: auditReason,
+            beforeState: {
+              name: room.name,
+              status: room.status,
+              ownerId: room.ownerId,
+              memberCount: room.members.length,
+              playbackState: room.playbacks[0]?.status ?? null,
+            },
+            afterState: { status: "CLOSED", closedAt: now.toISOString() },
+          },
+        });
+      }
+    });
   }
 
-  async removeMember(roomId: string, targetUserId: string, actor: CurrentUser): Promise<RoomDetails> {
+  async removeMember(
+    roomId: string,
+    targetUserId: string,
+    actor: CurrentUser,
+    auditReason?: string,
+  ): Promise<RoomDetails> {
     const room = await this.findRoom(roomId);
     this.assertCanManage(room, actor);
     if (targetUserId === room.ownerId) throw new ConflictException("不能移除房主");
-    const result = await this.prisma.roomMember.updateMany({
-      where: { roomId, userId: targetUserId, leftAt: null },
-      data: { leftAt: new Date() },
+    const target = room.members.find((member) => member.userId === targetUserId);
+    if (!target) throw new NotFoundException("房间成员不存在");
+    const removedAt = new Date();
+
+    await this.prisma.$transaction(async (transaction) => {
+      const result = await transaction.roomMember.updateMany({
+        where: { roomId, userId: targetUserId, leftAt: null },
+        data: { leftAt: removedAt },
+      });
+      if (result.count === 0) throw new NotFoundException("房间成员不存在");
+
+      const preparing = await transaction.playbackSession.findFirst({
+        where: { roomId, status: "PREPARING" },
+        select: { id: true },
+      });
+      if (preparing) {
+        await transaction.playbackReadyState.deleteMany({
+          where: { playbackSessionId: preparing.id, userId: targetUserId },
+        });
+      }
+      if (auditReason) {
+        await transaction.adminAuditLog.create({
+          data: {
+            actorId: actor.id,
+            action: "ROOM_MEMBER_REMOVE",
+            targetType: "RoomMember",
+            targetId: targetUserId,
+            reason: auditReason,
+            beforeState: {
+              roomId,
+              roomName: room.name,
+              username: target.user.username,
+              role: target.role,
+              joinedAt: target.joinedAt.toISOString(),
+            },
+            afterState: { roomId, leftAt: removedAt.toISOString() },
+          },
+        });
+      }
     });
-    if (result.count === 0) throw new NotFoundException("房间成员不存在");
     return this.getRoomForBroadcast(roomId);
   }
 

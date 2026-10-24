@@ -2,7 +2,7 @@
 
 Windows 桌面端线上 KTV 项目，采用 npm workspaces 管理用户端、管理端、服务端和共享包。
 
-当前版本：`0.4.0`。用户桌面端已具备全员资源屏障、服务器时间轴、本地音频输出、同步 LRC、漂移校正和房主播放控制；后台桌面端支持真实用户管理、授权歌曲上传、曲库发布/下架及审计记录。
+当前版本：`0.5.0`。用户桌面端已具备全员资源屏障、服务器时间轴、本地音频输出、同步 LRC、漂移校正和房主播放控制；后台桌面端已接入用户、活跃房间、成员、导入任务、播放记录、曲库和审计日志管理。
 
 ## 仓库结构
 
@@ -55,3 +55,5 @@ packages/
 详细方案见 [线上KTV桌面端项目规划书.md](./线上KTV桌面端项目规划书.md)，代码边界和后续实现顺序见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
 
 房间接口和全员资源就绪屏障见 [docs/ROOMS_AND_SYNC.md](./docs/ROOMS_AND_SYNC.md)，播放器时间轴与校正策略见 [docs/PLAYBACK_ENGINE.md](./docs/PLAYBACK_ENGINE.md)，歌曲资源链路见 [docs/ASSET_PIPELINE.md](./docs/ASSET_PIPELINE.md)。
+
+后台房间监管、任务/播放历史和审计操作说明见 [docs/ADMIN_OPERATIONS.md](./docs/ADMIN_OPERATIONS.md)。

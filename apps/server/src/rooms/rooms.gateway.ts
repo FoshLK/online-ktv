@@ -149,6 +149,35 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(this.channel(roomId)).emit("playback:command", command);
   }
 
+  async evictUserFromRoom(roomId: string, userId: string, message: string): Promise<void> {
+    const sockets = await this.server.in(this.channel(roomId)).fetchSockets();
+    await Promise.all(sockets
+      .filter((socket) => socket.data.currentUser?.id === userId)
+      .map(async (socket) => {
+        socket.emit("system:error", { code: "ROOM_REMOVED", message });
+        await socket.leave(this.channel(roomId));
+        this.presence.leave(socket.id, roomId);
+      }));
+
+    await this.reconcileRoomAfterMembershipChange(roomId);
+  }
+
+  async reconcileRoomAfterMembershipChange(roomId: string): Promise<void> {
+    const transition = await this.playback.reconcilePreparing(roomId);
+    if (transition?.command) this.broadcastPlaybackCommand(roomId, transition.command);
+    if (transition) this.broadcastPlaybackSnapshot(transition.snapshot);
+    await this.broadcastRoom(roomId);
+  }
+
+  async closeRoomChannel(roomId: string, message: string): Promise<void> {
+    const sockets = await this.server.in(this.channel(roomId)).fetchSockets();
+    await Promise.all(sockets.map(async (socket) => {
+      socket.emit("system:error", { code: "ROOM_CLOSED", message });
+      await socket.leave(this.channel(roomId));
+      this.presence.leave(socket.id, roomId);
+    }));
+  }
+
   async broadcastRoom(roomId: string): Promise<void> {
     try {
       const room = await this.rooms.getRoomForBroadcast(roomId);

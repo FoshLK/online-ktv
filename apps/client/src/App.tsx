@@ -395,7 +395,15 @@ function KtvHome({
     socket.on("playback:command", (nextCommand) => {
       if (nextCommand.roomId === currentRoom.id) setPlaybackCommand(nextCommand);
     });
-    socket.on("system:error", (payload) => setError(payload.message));
+    socket.on("system:error", (payload) => {
+      setError(payload.message);
+      if (payload.code === "ROOM_REMOVED" || payload.code === "ROOM_CLOSED") {
+        setCurrentRoom(null);
+        setPlaybackCommand(null);
+        setActiveId("rooms");
+        void loadRooms();
+      }
+    });
 
     return () => {
       closed = true;

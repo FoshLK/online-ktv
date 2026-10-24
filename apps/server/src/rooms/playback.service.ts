@@ -144,6 +144,41 @@ export class PlaybackService {
     });
   }
 
+  async reconcilePreparing(roomId: string): Promise<PlaybackTransition | undefined> {
+    return this.prisma.$transaction(async (transaction) => {
+      const session = await transaction.playbackSession.findFirst({
+        where: { roomId, status: "PREPARING" },
+        orderBy: { createdAt: "desc" },
+        include: this.snapshotInclude(),
+      });
+      if (!session) return undefined;
+
+      const allReady = session.readyStates.length > 0 && session.readyStates.every(
+        (state) => Boolean(state.readyAt) && state.checksum?.toLowerCase() === session.expectedChecksum.toLowerCase(),
+      );
+      if (!allReady) return { snapshot: this.toSnapshot(session as PlaybackRecord) };
+
+      const startAt = new Date(Date.now() + this.startLeadMs);
+      const scheduled = await transaction.playbackSession.update({
+        where: { id: session.id },
+        data: { status: "SCHEDULED", sequence: { increment: 1 }, startAt, pausedPositionMs: 0 },
+        include: this.snapshotInclude(),
+      });
+      await transaction.room.update({ where: { id: roomId }, data: { status: "PLAYING" } });
+      return {
+        snapshot: this.toSnapshot(scheduled as PlaybackRecord),
+        command: {
+          sessionId: scheduled.id,
+          roomId,
+          action: "START",
+          sequence: scheduled.sequence,
+          effectiveAtServerMs: startAt.getTime(),
+          positionMs: 0,
+        },
+      };
+    });
+  }
+
   async reportPosition(
     sessionId: string,
     userId: string,
