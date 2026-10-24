@@ -7,9 +7,10 @@ import { RoomsModule } from "./rooms/rooms.module.js";
 import { AdminModule } from "./admin/admin.module.js";
 import { SongsModule } from "./songs/songs.module.js";
 import { StorageModule } from "./storage/storage.module.js";
+import { RedisModule } from "./redis/redis.module.js";
 
 @Module({
-  imports: [DatabaseModule, StorageModule, AuthModule, RoomsModule, AdminModule, SongsModule],
+  imports: [DatabaseModule, RedisModule, StorageModule, AuthModule, RoomsModule, AdminModule, SongsModule],
   controllers: [HealthController, BootstrapController],
 })
 export class AppModule {}

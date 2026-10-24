@@ -4,6 +4,8 @@ import { NestFactory } from "@nestjs/core";
 import { config as loadEnv } from "dotenv";
 import { fileURLToPath } from "node:url";
 import { AppModule } from "./app.module.js";
+import { RedisIoAdapter } from "./redis/redis-io.adapter.js";
+import { RedisService } from "./redis/redis.service.js";
 
 loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)), quiet: true });
 
@@ -19,6 +21,12 @@ async function bootstrap() {
   app.enableCors({ origin: origins, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }));
   app.enableShutdownHooks();
+
+  const redis = app.get(RedisService);
+  if (await redis.connect()) {
+    const redisIoAdapter = new RedisIoAdapter(app, redis);
+    if (await redisIoAdapter.connectToRedis()) app.useWebSocketAdapter(redisIoAdapter);
+  }
 
   const port = Number(process.env.PORT ?? 3000);
   const host = process.env.SERVER_HOST ?? "0.0.0.0";

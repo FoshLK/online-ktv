@@ -1,2 +1,2 @@
-4d50dcf9892a66801b860e2be5fbc36b5a7a6ffba19ff9ded208241de7f05015  online-ktv-client-0.5.0-x64-setup.exe
-df57b592ba42a2480d132cd9f4bd49f598a4ee3d6850979f5084b284e0c21e15  online-ktv-admin-0.5.0-x64-setup.exe
+05aea46dabe7c897d80506ea3f4862da7f1427c23b53f6c4f1d6de99d54d70ae  online-ktv-client-0.6.0-x64-setup.exe
+0a1c78638e0ad18839d8776f5a583c2ba701210acc88714015a66b85ff88762f  online-ktv-admin-0.6.0-x64-setup.exe

@@ -1,4 +1,4 @@
-# 房间与播放同步（0.4.0）
+# 房间与播放同步（0.6.0）
 
 ## 房间 REST 接口
 
@@ -26,7 +26,7 @@ Socket.IO 命名空间为 `/rooms`。连接时必须在 `auth.token` 中携带�
 
 - `clock:ping`：估算客户端与服务器的时钟偏移。
 - `room:join` / `room:leave`：加入或离开实时广播频道。
-- `room:details` / `room:presence`：房间持久状态与单进程在线状态。
+- `room:details` / `room:presence`：房间持久状态与在线状态；配置 Redis 时由所有 API 实例共享。
 - `asset:ready`：客户端完成下载并校验后提交播放会话 ID 和 SHA-256。
 - `playback:snapshot`：完整播放状态，用于进入房间和断线恢复。
 - `playback:command`：带房间/会话 ID、`sequence` 和 `effectiveAtServerMs` 的播放命令。
@@ -43,4 +43,4 @@ Socket.IO 命名空间为 `/rooms`。连接时必须在 `auth.token` 中携带�
 7. 播放期间客户端每秒按服务器时间轴检查漂移：超过 250 ms 直接定位，45–250 ms 采用 0.97–1.03 倍速柔性收敛。
 8. 断线重连后客户端从完整快照恢复；若服务器仍等待当前成员，已缓存资源会重新发送幂等 `asset:ready`。
 
-当前资源由 Tauri Rust 下载器写入应用缓存，并通过受限 `asset://` 协议只读给播放器。生产环境仍需完成 Redis 多实例广播、设备延迟校准和真实多机压力验收。
+当前资源由 Tauri Rust 下载器写入应用缓存，并通过受限 `asset://` 协议只读给播放器。Redis 模式已经支持跨进程房间广播和带过期清理的在线状态；生产环境仍需完成反向代理下的多实例压力测试、Redis 高可用、设备延迟校准和真实多机验收。

@@ -69,7 +69,7 @@ export class RoomsService {
       orderBy: { updatedAt: "desc" },
       include: this.roomInclude(),
     });
-    return rooms.map((room) => this.toRoomDetails(room as RoomRecord));
+    return Promise.all(rooms.map((room) => this.toRoomDetails(room as RoomRecord)));
   }
 
   async getRoom(roomId: string, user: CurrentUser): Promise<RoomDetails> {
@@ -312,7 +312,8 @@ export class RoomsService {
     };
   }
 
-  private toRoomDetails(room: RoomRecord): RoomDetails {
+  private async toRoomDetails(room: RoomRecord): Promise<RoomDetails> {
+    const onlineUserIds = new Set(await this.presence.getOnlineUserIds(room.id));
     const playback = room.playbacks[0];
     const readyUserIds = playback?.readyStates.filter((state) => state.readyAt).map((state) => state.userId) ?? [];
     const participantIds = playback?.readyStates.map((state) => state.userId) ?? [];
@@ -358,7 +359,7 @@ export class RoomsService {
         role: member.role,
         joinedAt: member.joinedAt.toISOString(),
         muted: Boolean(member.mutedAt),
-        online: this.presence.isOnline(room.id, member.userId),
+        online: onlineUserIds.has(member.userId),
       })),
       currentPlayback,
     };

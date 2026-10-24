@@ -187,8 +187,16 @@ export interface PlaybackCommand {
   positionMs?: number;
 }
 
+export interface RuntimeInfrastructureStatus {
+  mode: "single-instance" | "distributed";
+  redis: "disabled" | "ready" | "unavailable";
+  presenceStore: "memory" | "redis";
+  socketAdapter: "local" | "redis";
+}
+
 export interface AdminOverview {
   generatedAt: string;
+  runtime: RuntimeInfrastructureStatus;
   stats: {
     registeredUsers: number;
     onlineUsers: number;
@@ -312,6 +320,7 @@ export interface ApiHealth {
   service: string;
   version: string;
   timestamp: string;
+  runtime: RuntimeInfrastructureStatus;
 }
 
 export interface ClientToServerEvents {

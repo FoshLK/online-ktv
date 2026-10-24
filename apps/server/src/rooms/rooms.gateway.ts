@@ -4,6 +4,7 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -27,15 +28,19 @@ interface RoomSocketData {
   currentUser?: CurrentUser;
 }
 
+interface RoomInterServerEvents {
+  "presence:leave": (socketId: string, roomId: string) => void;
+}
+
 type RoomSocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, RoomSocketData>;
-type RoomServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, RoomSocketData>;
+type RoomServer = Server<ClientToServerEvents, ServerToClientEvents, RoomInterServerEvents, RoomSocketData>;
 
 @WebSocketGateway({
   namespace: "/rooms",
   cors: { origin: true, credentials: true },
   transports: ["websocket", "polling"],
 })
-export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class RoomsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   private server!: RoomServer;
 
@@ -48,6 +53,12 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @Inject(RoomPresenceService) private readonly presence: RoomPresenceService,
     @Inject(PlaybackService) private readonly playback: PlaybackService,
   ) {}
+
+  afterInit(server: RoomServer): void {
+    server.on("presence:leave", (socketId, roomId) => {
+      void this.presence.leave(socketId, roomId);
+    });
+  }
 
   async handleConnection(client: RoomSocket): Promise<void> {
     try {
@@ -65,7 +76,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         role: user.role,
         status: user.status,
       };
-      this.presence.connect(client.id, user.id);
+      await this.presence.connect(client.id, user.id);
       this.logger.debug(`authenticated socket=${client.id} user=${user.id}`);
     } catch {
       client.emit("system:error", { code: "UNAUTHORIZED", message: "实时连接登录状态无效" });
@@ -74,7 +85,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async handleDisconnect(client: RoomSocket): Promise<void> {
-    const affectedRooms = this.presence.disconnect(client.id);
+    const affectedRooms = await this.presence.disconnect(client.id);
     await Promise.all(affectedRooms.map((roomId) => this.broadcastRoom(roomId)));
   }
 
@@ -91,7 +102,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = this.requireUser(client);
     await this.rooms.getRoom(payload.roomId, user);
     await client.join(this.channel(payload.roomId));
-    this.presence.join(client.id, payload.roomId);
+    await this.presence.join(client.id, payload.roomId);
     await this.broadcastRoom(payload.roomId);
     return { joined: true, serverMs: Date.now() };
   }
@@ -103,7 +114,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<{ left: boolean }> {
     this.requireUser(client);
     await client.leave(this.channel(payload.roomId));
-    this.presence.leave(client.id, payload.roomId);
+    await this.presence.leave(client.id, payload.roomId);
     await this.broadcastRoom(payload.roomId);
     return { left: true };
   }
@@ -151,13 +162,13 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async evictUserFromRoom(roomId: string, userId: string, message: string): Promise<void> {
     const sockets = await this.server.in(this.channel(roomId)).fetchSockets();
-    await Promise.all(sockets
-      .filter((socket) => socket.data.currentUser?.id === userId)
-      .map(async (socket) => {
-        socket.emit("system:error", { code: "ROOM_REMOVED", message });
-        await socket.leave(this.channel(roomId));
-        this.presence.leave(socket.id, roomId);
-      }));
+    const targetSockets = sockets.filter((socket) => socket.data.currentUser?.id === userId);
+    await Promise.all(targetSockets.map(async (socket) => {
+      socket.emit("system:error", { code: "ROOM_REMOVED", message });
+      await socket.leave(this.channel(roomId));
+      await this.presence.leave(socket.id, roomId);
+    }));
+    this.notifyOtherServersOfPresenceLeave(targetSockets.map((socket) => socket.id), roomId);
 
     await this.reconcileRoomAfterMembershipChange(roomId);
   }
@@ -174,8 +185,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await Promise.all(sockets.map(async (socket) => {
       socket.emit("system:error", { code: "ROOM_CLOSED", message });
       await socket.leave(this.channel(roomId));
-      this.presence.leave(socket.id, roomId);
+      await this.presence.leave(socket.id, roomId);
     }));
+    this.notifyOtherServersOfPresenceLeave(sockets.map((socket) => socket.id), roomId);
   }
 
   async broadcastRoom(roomId: string): Promise<void> {
@@ -185,7 +197,7 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.server.to(this.channel(roomId)).emit("room:snapshot", room);
       this.server.to(this.channel(roomId)).emit("room:presence", {
         roomId,
-        onlineUserIds: this.presence.getOnlineUserIds(roomId),
+        onlineUserIds: await this.presence.getOnlineUserIds(roomId),
       });
     } catch {
       // 房间关闭后无需再广播快照。
@@ -210,5 +222,10 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private channel(roomId: string): string {
     return `room:${roomId}`;
+  }
+
+  private notifyOtherServersOfPresenceLeave(socketIds: string[], roomId: string): void {
+    if (this.presence.getRuntimeStatus().socketAdapter !== "redis") return;
+    for (const socketId of socketIds) this.server.serverSideEmit("presence:leave", socketId, roomId);
   }
 }

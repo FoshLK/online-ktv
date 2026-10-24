@@ -2,7 +2,7 @@
 
 Windows 桌面端线上 KTV 项目，采用 npm workspaces 管理用户端、管理端、服务端和共享包。
 
-当前版本：`0.5.0`。用户桌面端已具备全员资源屏障、服务器时间轴、本地音频输出、同步 LRC、漂移校正和房主播放控制；后台桌面端已接入用户、活跃房间、成员、导入任务、播放记录、曲库和审计日志管理。
+当前版本：`0.6.0`。用户桌面端已具备全员资源屏障、服务器时间轴、本地音频输出、同步 LRC、漂移校正和房主播放控制；后台桌面端已接入用户、活跃房间、成员、导入任务、播放记录、曲库、审计日志和 Redis 运行状态。服务端可通过 Redis 共享在线状态并进行 Socket.IO 跨进程广播。
 
 ## 仓库结构
 
@@ -29,7 +29,7 @@ packages/
 
 开发管理员的随机密码只写入被 Git 忽略的 `data/dev-admin-credentials.txt`；重新 seed 会轮换密码。可运行 `npm run smoke:resources -w @ktv/server`，生成无版权正弦波并验证登录、上传、数据库记录、完整下载、HTTP Range 和 SHA-256。
 
-已有 Docker Desktop 的环境仍可使用 `npm run infra:up` 启动 PostgreSQL、Redis 和 MinIO，再运行标准 `npm run db:deploy` 与 `npm run dev`。
+已有 Docker Desktop 的环境仍可使用 `npm run infra:up` 启动 PostgreSQL、Redis 和 MinIO，再运行标准 `npm run db:deploy` 与 `npm run dev`。无 Redis 时把 `REDIS_URL` 留空或设为 `memory://`；服务端会保持单进程模式。多实例生产部署应配置共享 Redis，并设置 `REDIS_REQUIRED=true`，详见 [docs/REDIS_MULTI_INSTANCE.md](./docs/REDIS_MULTI_INSTANCE.md)。
 
 用户端和管理端只在 Tauri 桌面窗口中运行。开发时内部 Vite 服务仅绑定 `127.0.0.1`，不对局域网提供网页访问；发布安装包会直接内嵌静态资源，不运行前端网页服务器。服务端健康检查为 `http://localhost:3000/api/health`。
 
@@ -56,4 +56,4 @@ packages/
 
 房间接口和全员资源就绪屏障见 [docs/ROOMS_AND_SYNC.md](./docs/ROOMS_AND_SYNC.md)，播放器时间轴与校正策略见 [docs/PLAYBACK_ENGINE.md](./docs/PLAYBACK_ENGINE.md)，歌曲资源链路见 [docs/ASSET_PIPELINE.md](./docs/ASSET_PIPELINE.md)。
 
-后台房间监管、任务/播放历史和审计操作说明见 [docs/ADMIN_OPERATIONS.md](./docs/ADMIN_OPERATIONS.md)。
+后台房间监管、任务/播放历史和审计操作说明见 [docs/ADMIN_OPERATIONS.md](./docs/ADMIN_OPERATIONS.md)，Redis 在线状态、过期清理与多实例部署说明见 [docs/REDIS_MULTI_INSTANCE.md](./docs/REDIS_MULTI_INSTANCE.md)。

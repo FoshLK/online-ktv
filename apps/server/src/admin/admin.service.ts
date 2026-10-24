@@ -78,7 +78,7 @@ export class AdminService {
   ) {}
 
   async getOverview(): Promise<AdminOverview> {
-    const [registeredUsers, activeRooms, pendingImportJobs, roomSummaries, recentImportJobs] = await Promise.all([
+    const [registeredUsers, activeRooms, pendingImportJobs, roomSummaries, recentImportJobs, onlineUsers] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.room.count({ where: { status: { in: ["OPEN", "PLAYING"] } } }),
       this.prisma.songImportJob.count({
@@ -93,13 +93,15 @@ export class AdminService {
           song: { select: { id: true, title: true, artist: true } },
         },
       }),
+      this.presence.getOnlineUserCount(),
     ]);
 
     return {
       generatedAt: new Date().toISOString(),
+      runtime: this.presence.getRuntimeStatus(),
       stats: {
         registeredUsers,
-        onlineUsers: this.presence.getOnlineUserCount(),
+        onlineUsers,
         activeRooms,
         pendingImportJobs,
       },

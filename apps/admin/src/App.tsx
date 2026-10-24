@@ -163,6 +163,14 @@ function AdminDashboard({
 
   const pageTitle = activeId === "dashboard" ? "运行概览" : navigation.find((item) => item.id === activeId)?.label ?? "管理中心";
   const stats = overview?.stats;
+  const runtime = overview?.runtime;
+  const redisReady = runtime?.redis === "ready";
+  const redisStatusLabel = !runtime ? "检测中" : redisReady ? "已连接" : runtime.redis === "unavailable" ? "连接失败" : "未配置";
+  const runtimeDescription = runtime?.mode === "distributed"
+    ? "在线状态和 Socket.IO 广播已由 Redis 共享，可运行多个 API 实例。"
+    : runtime?.redis === "unavailable"
+      ? "Redis 当前不可用，服务正在使用本机内存状态；启动时降级的实例需在 Redis 恢复后重启。"
+      : "当前使用单进程内存状态；配置 REDIS_URL 后可启用跨实例在线状态与广播。";
 
   return (
     <DesktopShell
@@ -234,10 +242,11 @@ function AdminDashboard({
           <ul className="health-list">
             <li><span><i className="health-dot ok" />API 服务</span><StatusBadge tone="success">已连接</StatusBadge></li>
             <li><span><i className="health-dot ok" />PostgreSQL</span><StatusBadge tone="success">查询正常</StatusBadge></li>
-            <li><span><i className="health-dot warn" />Redis 在线状态</span><StatusBadge tone="warning">待接入</StatusBadge></li>
+            <li><span><i className={`health-dot ${redisReady ? "ok" : "warn"}`} />Redis 在线状态</span><StatusBadge tone={redisReady ? "success" : "warning"}>{redisStatusLabel}</StatusBadge></li>
+            <li><span><i className={`health-dot ${runtime?.socketAdapter === "redis" ? "ok" : "warn"}`} />实时广播</span><StatusBadge tone={runtime?.socketAdapter === "redis" ? "success" : "warning"}>{runtime?.socketAdapter === "redis" ? "跨实例" : "仅本机"}</StatusBadge></li>
             <li><span><i className="health-dot ok" />本地对象存储</span><StatusBadge tone="success">已接入</StatusBadge></li>
           </ul>
-          <p className="muted storage-copy">当前在线状态保存在单个服务进程内，接入 Redis 后支持多实例。</p>
+          <p className="muted storage-copy">{runtimeDescription}</p>
         </Panel>
 
         <Panel title="最近导入任务" action={<button className="primary-button" onClick={() => setActiveId("songs")} type="button">＋ 导入授权歌曲</button>}>
